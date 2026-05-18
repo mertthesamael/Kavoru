@@ -4,10 +4,10 @@ import { HealtService } from "./service";
 
 export default new Elysia({
   name: "health",
-  prefix: "/health",
+  prefix: "/healthz",
   tags: ["Health Check"],
 })
-  .get("/", () => "ok")
+  .get("/", "ok")
   .post(
     "/echo",
     ({ body }) => {

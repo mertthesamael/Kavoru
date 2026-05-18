@@ -1,35 +1,52 @@
 import Elysia from "elysia";
 import { responseSchema } from "../models/schemas/response";
+import {
+  PERF_START_HEADER,
+  REQUEST_PHASE_ELAPSED_HEADER,
+} from "../constants/headers";
+
+function isEnvelope(value: unknown): value is typeof responseSchema.static {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "success" in value &&
+    "timestamp" in value &&
+    "path" in value
+  );
+}
 
 export const responseMiddleware = new Elysia({ name: "response" })
-  .mapResponse(({ responseValue, request, set, headers }) => {
-    const contentType = headers["Content-Type"];
-    if (
-      contentType &&
-      typeof contentType === "string" &&
-      !contentType.includes("application/json")
-    ) {
-      return;
-    }
+  .onAfterHandle(({ responseValue, set, path }) => {
+    if (responseValue instanceof Response) return;
 
-    const path = new URL(request.url).pathname;
     const statusCode = typeof set.status === "number" ? set.status : 200;
 
-    if (
-      responseValue &&
-      typeof responseValue === "object" &&
-      "success" in responseValue
-    ) {
-      return new Response(JSON.stringify(createResponse(responseValue, path)), {
-        status: statusCode,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
+    const elapsedRaw = set.headers[REQUEST_PHASE_ELAPSED_HEADER];
+    const startRaw = set.headers[PERF_START_HEADER];
 
-    return new Response(JSON.stringify(createResponse(responseValue, path)), {
+    const timingChunk = {
+      ...(typeof elapsedRaw === "string" ? { elapsedMs: elapsedRaw } : {}),
+      ...(typeof startRaw === "string"
+        ? {
+            responseElapsedMs: (performance.now() - Number(startRaw)).toFixed(
+              8,
+            ),
+          }
+        : {}),
+    };
+
+    const body = isEnvelope(responseValue)
+      ? { ...responseValue, ...timingChunk }
+      : { ...createResponse(responseValue, path), ...timingChunk };
+
+    return {
       status: statusCode,
-      headers: { "Content-Type": "application/json" },
-    });
+      ...body,
+    };
+  })
+  .onAfterResponse(({ set }) => {
+    delete set.headers[REQUEST_PHASE_ELAPSED_HEADER];
+    delete set.headers[PERF_START_HEADER];
   })
   .as("scoped");
 

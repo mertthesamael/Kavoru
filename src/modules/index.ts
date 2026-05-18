@@ -10,6 +10,7 @@ import { config } from "../config";
 import cors from "@elysiajs/cors";
 import openapi from "@elysiajs/openapi";
 import bearer from "@elysiajs/bearer";
+import { telemetryMiddleware } from "../middleware/telemetry";
 
 const modulesDir = import.meta.dir;
 const routeGlob = new Bun.Glob("*/routes.ts");
@@ -59,6 +60,9 @@ export function registerModules(app: Elysia) {
         ],
       }),
     )*/
+    .use((app) =>
+      config.env.server.traceRequests ? app.use(telemetryMiddleware) : app,
+    )
     .use(responseMiddleware);
 
   for (const file of knownRouteFiles) {
