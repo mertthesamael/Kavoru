@@ -20,7 +20,7 @@ Production-ready **ElysiaJS** backend template using **Bun**, **TypeScript**, **
 | Validation | Elysia `t` schemas (`src/models/schemas/`) |
 | Database | PostgreSQL via Prisma 7 (`prisma.config.ts`) |
 | Auth | JWT (`jose`) + `@elysiajs/bearer` |
-| Observability | Optional OpenTelemetry + request tracing middleware |
+| Observability | OpenTelemetry via `@elysiajs/opentelemetry` (`src/infra/telemetry/`) |
 | Container | Docker (`Dockerfile`, `docker-compose.yaml`) |
 
 Follow [Elysia best practices](https://elysiajs.com/essential/best-practice.html) when adding or refactoring features.
@@ -51,9 +51,15 @@ bunx prisma db pull
 # Docker
 docker compose build
 docker compose up -d
+
+# OpenTelemetry (local trace viewer, no Docker required)
+bun run otel:view   # Web UI at http://localhost:4318
+bun run otel:tui    # Terminal UI
 ```
 
 Copy `.env.example` to `.env` before running. Required env vars are validated in `src/config/env.ts`.
+
+In development, OTEL is enabled by default (`http://localhost:4318/v1/traces`) unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set to empty.
 
 ## Architecture
 
@@ -75,17 +81,21 @@ src/
 ├── models/
 │   ├── schemas/          # Request/response validation (Elysia t.*)
 │   └── errors/           # AppError + HTTP error helpers
-├── infra/                # External integrations (auth, prisma, etc.)
+├── infra/                # External integrations (auth, prisma, telemetry, etc.)
+│   └── telemetry/        # OpenTelemetry wiring + Bun OTLP exporter
 ├── common/               # Shared utilities (logger)
-└── constants/            # Shared constants
+└── constants/            # Shared constants (e.g. JWT)
 ```
 
 ### Request flow
 
 1. `HttpServer` creates a root Elysia app and calls `registerModules`.
-2. `registerModules` applies global middleware: OpenAPI, CORS, optional telemetry, response envelope.
+2. `registerModules` applies global plugins in order: **OpenTelemetry first**, then OpenAPI, CORS, response envelope.
 3. Every `src/modules/*/routes.ts` export that is an `Elysia` instance is mounted automatically.
-4. `responseMiddleware` wraps handler return values in a standard envelope unless the value is already an envelope or a raw `Response`.
+4. A catch-all `app.all("/*")` at the end returns **404** for unknown paths (also enables full OTEL traces for not-found requests).
+5. `responseMiddleware` wraps handler return values in a standard envelope unless the value is already an envelope or a raw `Response`.
+
+Register new global plugins **after** `withOpenTelemetry` so they are included in trace spans (root span name, route attributes, lifecycle children). Do not register routes before OTEL — unmatched routes used to produce broken traces.
 
 ### Layer responsibilities
 
@@ -94,7 +104,8 @@ src/
 | Controller | `modules/<feature>/routes.ts` | HTTP routing, validation hooks, thin handlers |
 | Service | `modules/<feature>/service.ts` or `infra/` | Business logic, decoupled from Elysia `Context` |
 | Model | `models/schemas/` | Single source of truth for types + runtime validation |
-| Middleware | `middleware/` | Cross-cutting Elysia plugins (auth, response, telemetry) |
+| Middleware | `middleware/` | Cross-cutting Elysia plugins (auth, response) |
+| Telemetry | `infra/telemetry/` | OpenTelemetry SDK + Bun-compatible OTLP export |
 
 ## Coding conventions
 
@@ -156,7 +167,9 @@ export abstract class UserService {
 
 ### Responses
 
-Handlers should return plain data. The global `responseMiddleware` adds:
+Handlers should return plain data. The global `responseMiddleware` wraps responses based on HTTP status:
+
+**Success (status below 400):**
 
 ```json
 {
@@ -167,7 +180,24 @@ Handlers should return plain data. The global `responseMiddleware` adds:
 }
 ```
 
-Return a raw `Response` only when bypassing the envelope is intentional.
+**Error (status 400 and above):**
+
+```json
+{
+  "status": 404,
+  "success": false,
+  "error": {
+    "code": "404",
+    "message": "Not Found"
+  },
+  "timestamp": "ISO-8601",
+  "path": "/unknown"
+}
+```
+
+- `success` always reflects the HTTP status (`true` when status is below 400).
+- Prefer throwing `status()` from `src/models/errors/http-error.ts` in services; the envelope is applied by middleware.
+- Return a raw `Response` only when bypassing the envelope is intentional.
 
 ### Environment variables
 
@@ -176,6 +206,29 @@ Add new variables in `src/config/env.ts`:
 1. Extend `envSchema` with Elysia `t.*` types and defaults.
 2. Map parsed values into the returned config object.
 3. Update `.env.example`.
+
+Use `format: "uri"` (not `"url"`) for endpoint-style values that include paths (e.g. OTLP URLs).
+
+| Variable | Default (dev) | Description |
+| --- | --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318/v1/traces` | OTLP/HTTP traces endpoint; set empty to disable |
+| `OTEL_SERVICE_NAME` | `elysia-template` | Service name in trace UI |
+
+### OpenTelemetry
+
+- Wired in `src/infra/telemetry/index.ts` via `@elysiajs/opentelemetry`.
+- Uses `BunOtlpTraceExporter` (`src/infra/telemetry/bun-otlp-exporter.ts`) because the default Node OTLP HTTP exporter can hang under Bun.
+- At export time, `BunOtlpTraceExporter` normalizes spans for otel-dev:
+  - Renames `GET /*` / orphan `Request` spans to `GET /actual-path` using `url.path`.
+  - Marks span status **ERROR** when `http.response.status_code >= 400` (the Elysia OTEL plugin only marks 5xx as errors).
+- Spans are created automatically per request (Root, Request, Parse, Handle, etc.) by the Elysia OTEL plugin — do **not** add custom request-logging middleware.
+- Unknown paths: catch-all in `src/modules/index.ts` ensures 404s get a full span tree; exporter fixes display name and error status.
+- Local viewing: `bun run otel:view` (terminal 1) + `bun run dev` (terminal 2). Traces appear under `OTEL_SERVICE_NAME` within ~1s in dev.
+- otel-dev shows the **service name** (`elysia-template`) on every trace — that is normal. Span title uses the route (e.g. `GET /healthz/`).
+- Visiting `/help` also traces `GET /help/json` (OpenAPI spec fetch). URL hash fragments (e.g. `#tag/authentication`) are client-only and never appear in spans.
+- Docker alternative: Jaeger in `docker-compose.yaml` (UI at http://localhost:16686). Use `http://jaeger:4318/v1/traces` when the app runs inside compose.
+
+Do **not** use `@opentelemetry/exporter-trace-otlp-http` directly — use `BunOtlpTraceExporter`. Do **not** add lifecycle plugins to patch span names/status; fix export shaping in `bun-otlp-exporter.ts` instead.
 
 ### Logging
 
@@ -218,6 +271,7 @@ Do **not**:
 - Modify unrelated files when fixing a scoped issue.
 - Create commits or pull requests unless explicitly asked.
 - Use `npm`/`pnpm`/`yarn` — this project uses **Bun**.
+- Add custom telemetry/logging middleware for tracing — use OTEL spans instead.
 
 Do:
 
@@ -232,7 +286,9 @@ After making changes:
 1. Ensure TypeScript compiles: `bun run dev` (or `bun run src/index.ts`) starts without errors.
 2. Hit affected endpoints (default base URL: `http://localhost:3131`).
 3. Check OpenAPI at `/help` when adding or changing routes.
-4. For Prisma changes: run `bunx prisma generate` and verify migrations apply.
+4. For telemetry changes: run `bun run otel:view`, hit a route, confirm trace name/status in the UI (4xx should show **ERROR**, not OK).
+5. For error responses: confirm `success: false` and an `error` object when status is 400 or above.
+6. For Prisma changes: run `bunx prisma generate` and verify migrations apply.
 
 There is no test suite yet (`bun test` is a placeholder). Manual endpoint checks and startup verification are the current quality gates.
 
@@ -244,10 +300,11 @@ There is no test suite yet (`bun test` is a placeholder). Manual endpoint checks
 | POST | `/healthz/echo` | health | Echo body |
 | POST | `/signin` | signin | Returns JWT |
 | GET | `/protected` | protected | Requires Bearer token |
-| GET | `/help` | — | OpenAPI UI |
+| GET | `/help` | — | OpenAPI UI (also traces `GET /help/json`) |
+| * | `/*` (unmatched) | — | Returns 404 JSON envelope |
 
 ## Useful references
 
 - [Elysia best practices](https://elysiajs.com/essential/best-practice.html)
 - Human-oriented setup docs: `README.md`
-- Canonical patterns: `src/modules/signin/`, `src/middleware/response.ts`, `src/config/env.ts`
+- Canonical patterns: `src/modules/signin/`, `src/middleware/response.ts`, `src/config/env.ts`, `src/infra/telemetry/`

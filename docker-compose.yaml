@@ -20,11 +20,22 @@ services:
     env_file:
       - .env
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${PORT}/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:${PORT}/healthz"]
       interval: 600s
       timeout: 300s
       retries: 1
       start_period: 40s
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62
+    ports:
+      - "16686:16686"
+      - "4318:4318"
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    networks:
+      - app_network
+    restart: unless-stopped
 
 networks:
   app_network:

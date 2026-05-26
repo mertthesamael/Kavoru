@@ -1,16 +1,11 @@
 import { Elysia } from "elysia";
-import { swagger } from "@elysiajs/swagger";
 import { responseMiddleware } from "../middleware/response";
 import { watch, utimesSync } from "fs";
 import path from "path";
-import { opentelemetry } from "@elysiajs/opentelemetry";
-import { BatchSpanProcessor } from "@opentelemetry/sdk-trace-node";
-import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { config } from "../config";
 import cors from "@elysiajs/cors";
 import openapi from "@elysiajs/openapi";
-import bearer from "@elysiajs/bearer";
-import { telemetryMiddleware } from "../middleware/telemetry";
+import { withOpenTelemetry } from "../infra/telemetry";
 
 const modulesDir = import.meta.dir;
 const routeGlob = new Bun.Glob("*/routes.ts");
@@ -20,7 +15,7 @@ for (const file of routeGlob.scanSync(modulesDir)) {
   knownRouteFiles.add(file.replaceAll("\\", "/"));
 }
 
-if (process.env.NODE_ENV !== "production") {
+if (config.env.env !== "production") {
   const watcher = watch(modulesDir, { recursive: true }, (_event, filename) => {
     if (!filename?.endsWith("routes.ts")) return;
     const normalized = filename.replaceAll("\\", "/");
@@ -36,6 +31,7 @@ if (process.env.NODE_ENV !== "production") {
 
 export function registerModules(app: Elysia) {
   app
+    .use(withOpenTelemetry)
     .use(
       openapi({
         path: "/help",
@@ -49,20 +45,6 @@ export function registerModules(app: Elysia) {
       }),
     )
     .use(cors())
-    /*.use(
-      opentelemetry({
-        spanProcessors: [
-          new BatchSpanProcessor(
-            new OTLPTraceExporter({
-              url: config.env.server.otelExporterOtlpEndpoint,
-            }),
-          ),
-        ],
-      }),
-    )*/
-    .use((app) =>
-      config.env.server.traceRequests ? app.use(telemetryMiddleware) : app,
-    )
     .use(responseMiddleware);
 
   for (const file of knownRouteFiles) {
@@ -73,6 +55,11 @@ export function registerModules(app: Elysia) {
       }
     }
   }
+
+  app.all("/*", ({ set }) => {
+    set.status = 404;
+    return { message: "Not Found" };
+  });
 
   return app;
 }

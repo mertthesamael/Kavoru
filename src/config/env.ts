@@ -9,10 +9,10 @@ const envSchema = t.Object({
     { default: "development" },
   ),
   PORT: t.Numeric({ default: 3131 }),
-  OTEL_EXPORTER_OTLP_ENDPOINT: t.Optional(t.String({ format: "url" })),
+  OTEL_EXPORTER_OTLP_ENDPOINT: t.Optional(t.String({ format: "uri" })),
+  OTEL_SERVICE_NAME: t.String({ default: "elysia-template" }),
   DATABASE_URL: t.Optional(t.String()),
   JWT_SECRET: t.String({ default: "change-me-in-production" }),
-  TRACE_REQUESTS: t.Boolean({ default: true }),
 });
 
 const envValidator = getSchemaValidator(envSchema, {
@@ -89,13 +89,18 @@ export function loadEnv() {
   }
 
   const env = parsed.data;
+  const otelExporterOtlpEndpoint =
+    env.OTEL_EXPORTER_OTLP_ENDPOINT ??
+    (env.NODE_ENV === "development"
+      ? "http://localhost:4318/v1/traces"
+      : undefined);
 
   return {
     env: env.NODE_ENV,
     server: {
       port: env.PORT,
-      otelExporterOtlpEndpoint: env.OTEL_EXPORTER_OTLP_ENDPOINT,
-      traceRequests: env.TRACE_REQUESTS,
+      otelExporterOtlpEndpoint,
+      otelServiceName: env.OTEL_SERVICE_NAME,
     },
     database: {
       url: env.DATABASE_URL,

@@ -1,9 +1,5 @@
 import Elysia from "elysia";
 import { responseSchema } from "../models/schemas/response";
-import {
-  PERF_START_HEADER,
-  REQUEST_PHASE_ELAPSED_HEADER,
-} from "../constants/headers";
 
 function isEnvelope(value: unknown): value is typeof responseSchema.static {
   return (
@@ -15,38 +11,51 @@ function isEnvelope(value: unknown): value is typeof responseSchema.static {
   );
 }
 
+function errorMessageFrom(value: unknown): string {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "message" in value &&
+    typeof value.message === "string"
+  ) {
+    return value.message;
+  }
+
+  return "Request failed";
+}
+
 export const responseMiddleware = new Elysia({ name: "response" })
   .onAfterHandle(({ responseValue, set, path }) => {
     if (responseValue instanceof Response) return;
 
     const statusCode = typeof set.status === "number" ? set.status : 200;
+    const success = statusCode < 400;
 
-    const elapsedRaw = set.headers[REQUEST_PHASE_ELAPSED_HEADER];
-    const startRaw = set.headers[PERF_START_HEADER];
+    if (isEnvelope(responseValue)) {
+      return {
+        status: statusCode,
+        ...responseValue,
+        success: responseValue.success ?? success,
+      };
+    }
 
-    const timingChunk = {
-      ...(typeof elapsedRaw === "string" ? { elapsedMs: elapsedRaw } : {}),
-      ...(typeof startRaw === "string"
-        ? {
-            responseElapsedMs: (performance.now() - Number(startRaw)).toFixed(
-              8,
-            ),
-          }
-        : {}),
-    };
-
-    const body = isEnvelope(responseValue)
-      ? { ...responseValue, ...timingChunk }
-      : { ...createResponse(responseValue, path), ...timingChunk };
+    if (success) {
+      return {
+        status: statusCode,
+        ...createResponse(responseValue, path),
+      };
+    }
 
     return {
       status: statusCode,
-      ...body,
+      success: false,
+      error: {
+        code: String(statusCode),
+        message: errorMessageFrom(responseValue),
+      },
+      timestamp: new Date().toISOString(),
+      path,
     };
-  })
-  .onAfterResponse(({ set }) => {
-    delete set.headers[REQUEST_PHASE_ELAPSED_HEADER];
-    delete set.headers[PERF_START_HEADER];
   })
   .as("scoped");
 
