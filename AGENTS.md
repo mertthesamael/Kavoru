@@ -8,6 +8,7 @@ Production-ready **ElysiaJS** backend template using **Bun**, **TypeScript**, **
 
 - Entry point: `src/index.ts` → `HttpServer` in `src/server/index.ts`
 - Module registration: `src/modules/index.ts` (auto-discovers `src/modules/*/routes.ts`)
+- Scheduled jobs: `src/schedules/index.ts` (`@elysiajs/cron`, mounted in `HttpServer`)
 - API docs: OpenAPI UI at `/help`
 - Default port: `3131`
 
@@ -21,6 +22,7 @@ Production-ready **ElysiaJS** backend template using **Bun**, **TypeScript**, **
 | Database | PostgreSQL via Prisma 7 (`prisma.config.ts`) |
 | Auth | JWT (`jose`) + `@elysiajs/bearer` |
 | Observability | OpenTelemetry via `@elysiajs/opentelemetry` (`src/infra/telemetry/`) |
+| Scheduled tasks | `@elysiajs/cron` (`src/schedules/`) |
 | Container | Docker (`Dockerfile`, `docker-compose.yaml`) |
 
 Follow [Elysia best practices](https://elysiajs.com/essential/best-practice.html) when adding or refactoring features.
@@ -55,6 +57,9 @@ docker compose up -d
 # OpenTelemetry (local trace viewer, no Docker required)
 bun run otel:view   # Web UI at http://localhost:4318
 bun run otel:tui    # Terminal UI
+
+# Tests
+bun test
 ```
 
 Copy `.env.example` to `.env` before running. Required env vars are validated in `src/config/env.ts`.
@@ -83,8 +88,11 @@ src/
 │   └── errors/           # AppError + HTTP error helpers
 ├── infra/                # External integrations (auth, prisma, telemetry, etc.)
 │   └── telemetry/        # OpenTelemetry wiring + Bun OTLP exporter
+├── schedules/            # Cron jobs (@elysiajs/cron)
+│   └── index.ts          # All scheduled tasks (export `schedules`)
 ├── common/               # Shared utilities (logger)
-└── constants/            # Shared constants (e.g. JWT)
+├── constants/            # Shared constants (e.g. JWT)
+└── __tests__/            # Bun test files (*.test.ts)
 ```
 
 ### Request flow
@@ -106,6 +114,9 @@ Register new global plugins **after** `withOpenTelemetry` so they are included i
 | Model | `models/schemas/` | Single source of truth for types + runtime validation |
 | Middleware | `middleware/` | Cross-cutting Elysia plugins (auth, response) |
 | Telemetry | `infra/telemetry/` | OpenTelemetry SDK + Bun-compatible OTLP export |
+| Schedules | `schedules/` | Background cron jobs (not HTTP routes) |
+
+`HttpServer` mounts plugins as: `registerModules` → `schedules` (see `src/server/index.ts`). Cron runs for the lifetime of the process while the server is listening.
 
 ## Coding conventions
 
@@ -150,7 +161,8 @@ export abstract class UserService {
 
 - Define validation in `src/models/schemas/` using Elysia `t.*`.
 - Derive TypeScript types with `Static<typeof schema>` or `typeof schema.static`.
-- Wire schemas into routes via `body`, `response`, `query`, etc.
+- Wire schemas into routes via `body`, `query`, `params`, etc.
+- Do **not** use route-level `response` schemas on handlers that return plain data — `responseMiddleware` wraps output in the global envelope and Elysia will validate against the wrong shape. Use `responseSchema` in OpenAPI/docs only if needed.
 - Do not duplicate interfaces separately from validation schemas.
 
 ### Middleware
@@ -173,6 +185,7 @@ Handlers should return plain data. The global `responseMiddleware` wraps respons
 
 ```json
 {
+  "status": 200,
   "success": true,
   "data": { "...": "..." },
   "timestamp": "ISO-8601",
@@ -234,6 +247,97 @@ Do **not** use `@opentelemetry/exporter-trace-otlp-http` directly — use `BunOt
 
 Use `logger` from `src/common/logger.ts`. Do not add ad-hoc `console.log` in production paths.
 
+### Scheduled tasks (cron)
+
+All cron jobs live in `src/schedules/index.ts` and are registered on the root app via `.use(schedules)` in `src/server/index.ts`.
+
+Use `@elysiajs/cron` — each job is a separate `.use(cron({ ... }))` on the exported `schedules` Elysia instance:
+
+```typescript
+import Elysia from "elysia";
+import { cron, Patterns } from "@elysiajs/cron";
+import { logger } from "../common/logger";
+import { SomeService } from "../modules/foo/service";
+
+export const schedules = new Elysia()
+  .use(
+    cron({
+      name: "My Job",
+      pattern: Patterns.everyDayAt("03:00"),
+      timezone: "Europe/Istanbul",
+      run: () => {
+        void SomeService.runDailyTask();
+      },
+    }),
+  );
+```
+
+**Built-in examples (template):**
+
+| Name | Pattern | Timezone | Notes |
+| --- | --- | --- | --- |
+| Daily Schedule | `Patterns.everyDayAt("00:00")` | `Europe/Istanbul` | Once per day at midnight |
+| Spesific Day Schedule | `Patterns.EVERY_1ST_DAY_OF_MONTH_AT_MIDNIGHT` | `UTC` | First day of month |
+| Cron Example | `*/10 * * * * *` | (server default) | Every 10 seconds — dev heartbeat only |
+
+**Conventions:**
+
+- Keep `run` thin: call a **service** static method; do not put business logic inline in `schedules/index.ts`.
+- Use `Patterns.*` helpers when possible; use a cron string for custom schedules (6-field with seconds: `second minute hour day month weekday`).
+- Set `timezone` explicitly for calendar-based jobs (daily/monthly).
+- Give each job a unique `name` (used by the cron plugin for identification).
+- Use `logger` for job start/finish or errors; avoid `console.log`.
+- Cron jobs are **not** HTTP requests — they do not appear in route traces unless you instrument them manually.
+- Avoid sub-second or very frequent crons in production unless required (the template heartbeat runs every 10s for demonstration).
+
+Do **not** add cron definitions inside feature `routes.ts` files — keep them centralized in `src/schedules/`.
+
+## Testing
+
+Tests use **Bun's built-in test runner** (`bun:test`). Files live in `__tests__/` with the `*.test.ts` suffix.
+
+```bash
+bun test
+```
+
+### Conventions
+
+- Test HTTP behavior with `app.handle(new Request(...))` — no need to start a listening server.
+- Build the app with `registerModules(new Elysia())` for route + middleware integration tests.
+- Assert the **API envelope** using `createResponse` from `src/middleware/response.ts`:
+
+```typescript
+import { describe, expect, it } from "bun:test";
+import { Elysia } from "elysia";
+import { registerModules } from "../src/modules";
+import { createResponse } from "../src/middleware/response";
+
+describe("My Feature", () => {
+  it("returns success envelope", async () => {
+    const app = registerModules(new Elysia());
+
+    const response = await app
+      .handle(new Request("http://localhost/my-route"))
+      .then((res) => res.json());
+
+    expect(response).toEqual(createResponse({ id: 1 }, "/my-route", 200));
+  });
+});
+```
+
+- Always pass **`statusCode`** as the third argument to `createResponse` (required).
+- For **POST/PUT/PATCH** with JSON bodies, set `Content-Type: application/json` on the `Request`.
+- Prefer testing services in isolation (static methods) when logic does not need HTTP/Elysia context.
+- Add tests when changing routes, response envelope behavior, or auth flows.
+
+### Current coverage (`__tests__/controller.test.ts`)
+
+| Test | What it verifies |
+| --- | --- |
+| GET `/healthz` | 200 success envelope |
+| GET unknown path | 404 error envelope (`success: false`) |
+| POST `/healthz/echo` | JSON body parsing + success envelope with `data` |
+
 ## Adding a new module
 
 1. Create `src/modules/<feature>/routes.ts` exporting an `Elysia` instance.
@@ -260,6 +364,7 @@ Reference implementations:
 - Close watchers, timers, and server handles on shutdown (see `src/index.ts`).
 - In dev, the module file watcher calls `watcher.unref()` and closes itself after detecting a new route file — follow this pattern for new background resources.
 - Prefer stateless static services over accumulating instance caches unless eviction is explicit.
+- Cron timers are tied to the server process — they stop when `HttpServer.stop()` runs (see graceful shutdown in `src/index.ts`).
 
 ## Boundaries
 
@@ -283,14 +388,13 @@ Do:
 
 After making changes:
 
-1. Ensure TypeScript compiles: `bun run dev` (or `bun run src/index.ts`) starts without errors.
-2. Hit affected endpoints (default base URL: `http://localhost:3131`).
-3. Check OpenAPI at `/help` when adding or changing routes.
-4. For telemetry changes: run `bun run otel:view`, hit a route, confirm trace name/status in the UI (4xx should show **ERROR**, not OK).
-5. For error responses: confirm `success: false` and an `error` object when status is 400 or above.
-6. For Prisma changes: run `bunx prisma generate` and verify migrations apply.
-
-There is no test suite yet (`bun test` is a placeholder). Manual endpoint checks and startup verification are the current quality gates.
+1. Run tests: `bun test`.
+2. Ensure TypeScript compiles: `bun run dev` (or `bun run src/index.ts`) starts without errors.
+3. Hit affected endpoints (default base URL: `http://localhost:3131`).
+4. Check OpenAPI at `/help` when adding or changing routes.
+5. For telemetry changes: run `bun run otel:view`, hit a route, confirm trace name/status in the UI (4xx should show **ERROR**, not OK).
+6. For error responses: confirm `success: false` and an `error` object when status is 400 or above.
+7. For Prisma changes: run `bunx prisma generate` and verify migrations apply.
 
 ## Current endpoints (reference)
 
@@ -307,4 +411,5 @@ There is no test suite yet (`bun test` is a placeholder). Manual endpoint checks
 
 - [Elysia best practices](https://elysiajs.com/essential/best-practice.html)
 - Human-oriented setup docs: `README.md`
-- Canonical patterns: `src/modules/signin/`, `src/middleware/response.ts`, `src/config/env.ts`, `src/infra/telemetry/`
+- Canonical patterns: `src/modules/signin/`, `src/middleware/response.ts`, `src/config/env.ts`, `src/infra/telemetry/`, `src/schedules/index.ts`, `__tests__/controller.test.ts`
+- Cron plugin: [@elysiajs/cron](https://elysiajs.com/plugins/cron.html)

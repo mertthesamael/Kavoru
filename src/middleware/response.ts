@@ -29,42 +29,47 @@ export const responseMiddleware = new Elysia({ name: "response" })
     if (responseValue instanceof Response) return;
 
     const statusCode = typeof set.status === "number" ? set.status : 200;
-    const success = statusCode < 400;
 
-    if (isEnvelope(responseValue)) {
-      return {
-        status: statusCode,
-        ...responseValue,
-        success: responseValue.success ?? success,
-      };
-    }
-
-    if (success) {
-      return {
-        status: statusCode,
-        ...createResponse(responseValue, path),
-      };
-    }
-
-    return {
-      status: statusCode,
-      success: false,
-      error: {
-        code: String(statusCode),
-        message: errorMessageFrom(responseValue),
-      },
-      timestamp: new Date().toISOString(),
-      path,
-    };
+    return createResponse(responseValue, path, statusCode);
   })
   .as("scoped");
 
-export const createResponse = <T>(
-  data: T,
+export function createResponse(
+  value: unknown,
   path: string,
-): typeof responseSchema.static => ({
-  success: true,
-  data,
-  timestamp: new Date().toISOString(),
-  path,
-});
+  statusCode: number,
+): typeof responseSchema.static {
+  const success = statusCode < 400;
+  const timestamp = new Date().toISOString();
+
+  if (isEnvelope(value)) {
+    return {
+      ...value,
+      status: statusCode,
+      success: value.success ?? success,
+      timestamp: value.timestamp ?? timestamp,
+      path: value.path ?? path,
+    };
+  }
+
+  if (success) {
+    return {
+      status: statusCode,
+      success: true,
+      data: value,
+      timestamp,
+      path,
+    };
+  }
+
+  return {
+    status: statusCode,
+    success: false,
+    error: {
+      code: String(statusCode),
+      message: errorMessageFrom(value),
+    },
+    timestamp,
+    path,
+  };
+}

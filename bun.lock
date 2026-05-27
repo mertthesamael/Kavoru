@@ -5,22 +5,23 @@
     "": {
       "name": "elysia-template",
       "dependencies": {
-        "@elysiajs/bearer": "^1.4.3",
-        "@elysiajs/cors": "^1.4.1",
-        "@elysiajs/jwt": "^1.4.1",
-        "@elysiajs/openapi": "^1.4.14",
-        "@elysiajs/opentelemetry": "^1.4.10",
+        "@elysia/cron": "^1.4.2",
+        "@elysiajs/bearer": "^1.4.4",
+        "@elysiajs/cors": "^1.4.2",
+        "@elysiajs/jwt": "^1.4.2",
+        "@elysiajs/openapi": "^1.4.15",
+        "@elysiajs/opentelemetry": "^1.4.11",
         "@elysiajs/swagger": "^1.3.1",
         "@opentelemetry/exporter-trace-otlp-http": "^0.200.0",
         "@opentelemetry/otlp-transformer": "^0.200.0",
-        "@opentelemetry/sdk-trace-node": "^2.0.0",
-        "@prisma/adapter-pg": "^7.4.2",
-        "@prisma/client": "^7.4.2",
+        "@opentelemetry/sdk-trace-node": "^2.7.1",
+        "@prisma/adapter-pg": "^7.8.0",
+        "@prisma/client": "^7.8.0",
         "elysia": "latest",
       },
       "devDependencies": {
         "bun-types": "latest",
-        "prisma": "^7.4.2",
+        "prisma": "^7.8.0",
       },
     },
   },
@@ -32,6 +33,8 @@
     "@electric-sql/pglite-socket": ["@electric-sql/pglite-socket@0.1.1", "", { "peerDependencies": { "@electric-sql/pglite": "0.4.1" }, "bin": { "pglite-server": "dist/scripts/server.js" } }, "sha512-p2hoXw3Z3LQHwTeikdZNsFBOvXGqKY2hk51BBw+8NKND8eoH+8LFOtW9Z8CQKmTJ2qqGYu82ipqiyFZOTTXNfw=="],
 
     "@electric-sql/pglite-tools": ["@electric-sql/pglite-tools@0.3.1", "", { "peerDependencies": { "@electric-sql/pglite": "0.4.1" } }, "sha512-C+T3oivmy9bpQvSxVqXA1UDY8cB9Eb9vZHL9zxWwEUfDixbXv4G3r2LjoTdR33LD8aomR3O9ZXEO3XEwr/cUCA=="],
+
+    "@elysia/cron": ["@elysia/cron@1.4.2", "", { "dependencies": { "croner": "^6.0.3" }, "peerDependencies": { "elysia": ">= 1.4.0" } }, "sha512-YCaFCaT7CO7Lmfv66YGCqMYaAEjLZBpPtocaj9kS6NkhXqayhyKxqUOLSVW3qpIL9ZAE9m47GC650ZtvHpA58g=="],
 
     "@elysiajs/bearer": ["@elysiajs/bearer@1.4.4", "", { "peerDependencies": { "elysia": ">= 1.4.3" } }, "sha512-NCMiTEwLmqfxkbaTHYvZXvmO+CHmHVNlLLNa+0RcJviK88abVeSnn6wswgABGGTRJJTkfw3Ks3fw/7um3bxeRQ=="],
 
@@ -232,6 +235,8 @@
     "confbox": ["confbox@0.2.4", "", {}, "sha512-ysOGlgTFbN2/Y6Cg3Iye8YKulHw+R2fNXHrgSmXISQdMnomY6eNDprVdW9R5xBguEqI954+S6709UyiO7B+6OQ=="],
 
     "cookie": ["cookie@1.1.1", "", {}, "sha512-ei8Aos7ja0weRpFzJnEA9UHJ/7XQmqglbRwnf2ATjcB9Wq874VKH9kfjjirM6UhU2/E5fFYadylyhFldcqSidQ=="],
+
+    "croner": ["croner@6.0.7", "", {}, "sha512-k3Xx3Rcclfr60Yx4TmvsF3Yscuiql8LSvYLaphTsaq5Hk8La4Z/udmUANMOTKpgGGroI2F6/XOr9cU9OFkYluQ=="],
 
     "cross-spawn": ["cross-spawn@7.0.6", "", { "dependencies": { "path-key": "^3.1.0", "shebang-command": "^2.0.0", "which": "^2.0.1" } }, "sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA=="],
 

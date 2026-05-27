@@ -1,5 +1,5 @@
 import Elysia from "elysia";
-import { echoResponseSchema, echoSchema } from "../../models/schemas/health";
+import { echoSchema } from "../../models/schemas/health";
 import { HealtService } from "./service";
 
 export default new Elysia({
@@ -7,7 +7,7 @@ export default new Elysia({
   prefix: "/healthz",
   tags: ["Health Check"],
 })
-  .get("/", "ok")
+  .get("/", () => "ok")
   .post(
     "/echo",
     ({ body }) => {
@@ -15,6 +15,5 @@ export default new Elysia({
     },
     {
       body: echoSchema,
-      response: echoResponseSchema,
     },
   );

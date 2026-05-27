@@ -1,6 +1,7 @@
 import { t } from "elysia";
 
 export const responseSchema = t.Object({
+  status: t.Number(),
   success: t.Boolean(),
   data: t.Optional(t.Any()),
   error: t.Optional(

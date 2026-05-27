@@ -2,6 +2,7 @@ import { Elysia } from "elysia";
 import { config } from "../config/index";
 import { logger } from "../common/logger";
 import { registerModules } from "../modules";
+//import { schedules } from "../schedules"; // #1 - optional cron job example
 
 export class HttpServer {
   private app: any;
@@ -9,6 +10,7 @@ export class HttpServer {
 
   constructor() {
     this.app = new Elysia().use(registerModules);
+    //.use(schedules); // #1 - optional cron job example
   }
 
   async start() {

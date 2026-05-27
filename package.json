@@ -2,7 +2,7 @@
   "name": "elysia-template",
   "version": "1.0.0",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "bun test",
     "build": "bun build --compile --minify-whitespace --minify-syntax --target bun --outfile server ./src/index.ts",
     "start": "bunx prisma dp pull && bunx prisma generate && bun run src/index.ts",
     "dev": "bun run --watch src/index.ts",
@@ -13,6 +13,7 @@
     "otel:tui": "bunx otel-dev"
   },
   "dependencies": {
+    "@elysia/cron": "^1.4.2",
     "@elysiajs/bearer": "^1.4.4",
     "@elysiajs/cors": "^1.4.2",
     "@elysiajs/jwt": "^1.4.2",
