@@ -24,6 +24,18 @@ describe("Elysia Controller", () => {
       createResponse({ message: "Not Found" }, "/not-found", 404),
     );
   });
+  it("returns envelope for thrown status errors", async () => {
+    const app = registerModules(new Elysia());
+
+    const response = await app
+      .handle(new Request("http://localhost/healthz/error"))
+      .then((res) => res.json());
+
+    expect(response).toEqual(
+      createResponse("Test Error", "/healthz/error", 500),
+    );
+  });
+
   it("returns proper response from post request", async () => {
     const app = registerModules(new Elysia());
 

@@ -5,11 +5,7 @@ import {
   InvalidBodyError,
   NotAuthorizedError,
 } from "../../models/errors/http-error";
-
-export type TokenPayload = {
-  userId: number;
-  email: string;
-};
+import type { TokenPayload } from "./types";
 
 export abstract class AuthService {
   static async validateToken(

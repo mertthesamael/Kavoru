@@ -1,4 +1,6 @@
 import Elysia from "elysia";
+import { isElysiaStatusResponse } from "../models/errors/http-error";
+import { httpErrorStatus } from "../models/errors/helpers";
 import { responseSchema } from "../models/schemas/response";
 
 function isEnvelope(value: unknown): value is typeof responseSchema.static {
@@ -12,6 +14,8 @@ function isEnvelope(value: unknown): value is typeof responseSchema.static {
 }
 
 function errorMessageFrom(value: unknown): string {
+  if (typeof value === "string") return value;
+
   if (
     typeof value === "object" &&
     value !== null &&
@@ -31,6 +35,20 @@ export const responseMiddleware = new Elysia({ name: "response" })
     const statusCode = typeof set.status === "number" ? set.status : 200;
 
     return createResponse(responseValue, path, statusCode);
+  })
+  .onError(({ error, set, path }) => {
+    if (isElysiaStatusResponse(error)) {
+      set.status = error.code;
+      return createResponse(error.response, path, error.code);
+    }
+
+    const statusCode = httpErrorStatus(error);
+    if (statusCode === undefined || statusCode < 400) return;
+
+    set.status = statusCode;
+    const body =
+      error instanceof Error ? error.message : errorMessageFrom(error);
+    return createResponse(body, path, statusCode);
   })
   .as("scoped");
 

@@ -21,7 +21,7 @@ Production-ready **ElysiaJS** backend template using **Bun**, **TypeScript**, **
 | Validation | Elysia `t` schemas (`src/models/schemas/`) |
 | Database | PostgreSQL via Prisma 7 (`prisma.config.ts`) |
 | Auth | JWT (`jose`) + `@elysiajs/bearer` |
-| Observability | OpenTelemetry via `@elysiajs/opentelemetry` (`src/infra/telemetry/`) |
+| Observability | OpenTelemetry (`src/infra/telemetry/`) + Sentry (`src/infra/sentry/`) |
 | Scheduled tasks | `@elysiajs/cron` (`src/schedules/`) |
 | Container | Docker (`Dockerfile`, `docker-compose.yaml`) |
 
@@ -58,13 +58,16 @@ docker compose up -d
 bun run otel:view   # Web UI at http://localhost:4318
 bun run otel:tui    # Terminal UI
 
+# Sentry Spotlight (local errors/traces, no Sentry account required)
+bun run sentry:spotlight   # UI at http://localhost:8969
+
 # Tests
 bun test
 ```
 
 Copy `.env.example` to `.env` before running. Required env vars are validated in `src/config/env.ts`.
 
-In development, OTEL is enabled by default (`http://localhost:4318/v1/traces`) unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set to empty.
+In development, OTEL is enabled by default (`http://localhost:4318/v1/traces`) unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set to empty. Sentry Spotlight is enabled by default unless `SENTRY_SPOTLIGHT=false`.
 
 ## Architecture
 
@@ -87,7 +90,8 @@ src/
 │   ├── schemas/          # Request/response validation (Elysia t.*)
 │   └── errors/           # AppError + HTTP error helpers
 ├── infra/                # External integrations (auth, prisma, telemetry, etc.)
-│   └── telemetry/        # OpenTelemetry wiring + Bun OTLP exporter
+│   ├── telemetry/        # OpenTelemetry wiring + Bun OTLP exporter
+│   └── sentry/           # Sentry error monitoring + performance tracing
 ├── schedules/            # Cron jobs (@elysiajs/cron)
 │   └── index.ts          # All scheduled tasks (export `schedules`)
 ├── common/               # Shared utilities (logger)
@@ -98,12 +102,12 @@ src/
 ### Request flow
 
 1. `HttpServer` creates a root Elysia app and calls `registerModules`.
-2. `registerModules` applies global plugins in order: **OpenTelemetry first**, then OpenAPI, CORS, response envelope.
+2. `registerModules` applies global plugins in order: **Sentry**, **OpenTelemetry**, then OpenAPI, CORS, response envelope.
 3. Every `src/modules/*/routes.ts` export that is an `Elysia` instance is mounted automatically.
 4. A catch-all `app.all("/*")` at the end returns **404** for unknown paths (also enables full OTEL traces for not-found requests).
 5. `responseMiddleware` wraps handler return values in a standard envelope unless the value is already an envelope or a raw `Response`.
 
-Register new global plugins **after** `withOpenTelemetry` so they are included in trace spans (root span name, route attributes, lifecycle children). Do not register routes before OTEL — unmatched routes used to produce broken traces.
+Register new global plugins **after** `withSentry` / `withOpenTelemetry` so they are included in trace spans (root span name, route attributes, lifecycle children). Do not register routes before observability plugins — unmatched routes used to produce broken traces.
 
 ### Layer responsibilities
 
@@ -114,6 +118,7 @@ Register new global plugins **after** `withOpenTelemetry` so they are included i
 | Model | `models/schemas/` | Single source of truth for types + runtime validation |
 | Middleware | `middleware/` | Cross-cutting Elysia plugins (auth, response) |
 | Telemetry | `infra/telemetry/` | OpenTelemetry SDK + Bun-compatible OTLP export |
+| Sentry | `infra/sentry/` | Error monitoring + performance tracing via `@sentry/elysia` |
 | Schedules | `schedules/` | Background cron jobs (not HTTP routes) |
 
 `HttpServer` mounts plugins as: `registerModules` → `schedules` (see `src/server/index.ts`). Cron runs for the lifetime of the process while the server is listening.
@@ -226,6 +231,22 @@ Use `format: "uri"` (not `"url"`) for endpoint-style values that include paths (
 | --- | --- | --- |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318/v1/traces` | OTLP/HTTP traces endpoint; set empty to disable |
 | `OTEL_SERVICE_NAME` | `elysia-template` | Service name in trace UI |
+| `SENTRY_DSN` | _(unset)_ | Sentry project DSN; optional when using Spotlight locally |
+| `SENTRY_SPOTLIGHT` | `true` in dev | `true`/`1`, `false`/`0`/empty, or sidecar URL (e.g. `http://localhost:8969/stream`) |
+| `SENTRY_TRACES_SAMPLE_RATE` | `1.0` dev / `0.1` prod | Fraction of transactions sent to Sentry |
+
+### Sentry
+
+- Wired in `src/infra/sentry/index.ts` via `@sentry/elysia` (alpha SDK).
+- `initSentry()` runs in `src/index.ts` before the HTTP server starts; `withSentry` is the first plugin in `registerModules`.
+- **Spotlight (local):** enabled in development by default (`SENTRY_SPOTLIGHT`). Uses placeholder DSN `https://spotlight@local/0` when `SENTRY_DSN` is unset; events stay on your machine.
+- **Cloud:** set `SENTRY_DSN` to also send events to sentry.io (Spotlight can run alongside).
+- Disabled in `test` and when `SENTRY_SPOTLIGHT=false` with no DSN.
+- Captures real **`Error`** instances on **5xx** (or unset status). Does **not** capture `throw status(...)` (`ElysiaCustomStatusResponse` — no stack, shows compiled SDK frames). Use `throw new Error(...)` or `NotAuthorizedError()` / `status()` for intentional HTTP responses respectively.
+- Request tracing uses Sentry spans (lifecycle phases: Request, Parse, Handle, etc.) — separate from OTLP traces.
+- `flushSentry()` on shutdown (`SIGINT` / `SIGTERM`) so events are not lost.
+- Local viewing: `bun run sentry:spotlight` (terminal 1) + `bun run dev` (terminal 2). UI at http://localhost:8969.
+- OTEL and Sentry can run together: OTEL → otel-dev/Jaeger; Sentry → Spotlight and/or sentry.io.
 
 ### OpenTelemetry
 
@@ -411,5 +432,5 @@ After making changes:
 
 - [Elysia best practices](https://elysiajs.com/essential/best-practice.html)
 - Human-oriented setup docs: `README.md`
-- Canonical patterns: `src/modules/signin/`, `src/middleware/response.ts`, `src/config/env.ts`, `src/infra/telemetry/`, `src/schedules/index.ts`, `__tests__/controller.test.ts`
+- Canonical patterns: `src/modules/signin/`, `src/middleware/response.ts`, `src/config/env.ts`, `src/infra/telemetry/`, `src/infra/sentry/`, `src/schedules/index.ts`, `__tests__/controller.test.ts`
 - Cron plugin: [@elysiajs/cron](https://elysiajs.com/plugins/cron.html)

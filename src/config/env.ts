@@ -11,6 +11,11 @@ const envSchema = t.Object({
   PORT: t.Numeric({ default: 3131 }),
   OTEL_EXPORTER_OTLP_ENDPOINT: t.Optional(t.String({ format: "uri" })),
   OTEL_SERVICE_NAME: t.String({ default: "elysia-template" }),
+  SENTRY_DSN: t.Optional(t.String({ format: "uri" })),
+  SENTRY_SPOTLIGHT: t.Optional(t.String()),
+  SENTRY_TRACES_SAMPLE_RATE: t.Optional(
+    t.Numeric({ minimum: 0, maximum: 1 }),
+  ),
   DATABASE_URL: t.Optional(t.String()),
   JWT_SECRET: t.String({ default: "change-me-in-production" }),
 });
@@ -29,6 +34,18 @@ function buildEnvFromSchema(schema: {
       return [key, value];
     }),
   );
+}
+
+function resolveSentrySpotlight(
+  raw: string | undefined,
+  nodeEnv: string,
+): boolean | string | false {
+  if (nodeEnv === "test") return false;
+  if (raw === "") return false;
+  if (raw === "false" || raw === "0") return false;
+  if (raw && raw !== "true" && raw !== "1") return raw;
+  if (raw === "true" || raw === "1") return true;
+  return nodeEnv === "development";
 }
 
 function formatEnvError(err: unknown) {
@@ -95,12 +112,24 @@ export function loadEnv() {
       ? "http://localhost:4318/v1/traces"
       : undefined);
 
+  const sentryTracesSampleRate =
+    env.SENTRY_TRACES_SAMPLE_RATE ??
+    (env.NODE_ENV === "production" ? 0.1 : 1.0);
+
+  const sentrySpotlight = resolveSentrySpotlight(
+    env.SENTRY_SPOTLIGHT,
+    env.NODE_ENV,
+  );
+
   return {
     env: env.NODE_ENV,
     server: {
       port: env.PORT,
       otelExporterOtlpEndpoint,
       otelServiceName: env.OTEL_SERVICE_NAME,
+      sentryDsn: env.SENTRY_DSN,
+      sentrySpotlight,
+      sentryTracesSampleRate,
     },
     database: {
       url: env.DATABASE_URL,

@@ -5,6 +5,7 @@ import path from "path";
 import { config } from "../config";
 import cors from "@elysiajs/cors";
 import openapi from "@elysiajs/openapi";
+import { withSentry } from "../infra/sentry";
 import { withOpenTelemetry } from "../infra/telemetry";
 
 const modulesDir = import.meta.dir;
@@ -31,6 +32,7 @@ if (config.env.env !== "production") {
 
 export function registerModules(app: Elysia) {
   app
+    .use(withSentry)
     .use(withOpenTelemetry)
     .use(
       openapi({

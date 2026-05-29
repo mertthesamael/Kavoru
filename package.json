@@ -10,7 +10,8 @@
     "start:prod": "./server",
     "seed": "bun run src/infra/prisma/seed/index.ts",
     "otel:view": "bunx otel-dev --web",
-    "otel:tui": "bunx otel-dev"
+    "otel:tui": "bunx otel-dev",
+    "sentry:spotlight": "bunx @spotlightjs/spotlight server -o"
   },
   "dependencies": {
     "@elysia/cron": "^1.4.2",
@@ -25,6 +26,7 @@
     "@opentelemetry/sdk-trace-node": "^2.7.1",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
+    "@sentry/elysia": "^10.55.0",
     "elysia": "latest"
   },
   "devDependencies": {
