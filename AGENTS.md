@@ -23,6 +23,8 @@ Production-ready **ElysiaJS** backend template using **Bun**, **TypeScript**, **
 | Auth | JWT (`jose`) + `@elysiajs/bearer` |
 | Observability | OpenTelemetry (`src/infra/telemetry/`) + Sentry (`src/infra/sentry/`) |
 | Scheduled tasks | `@elysiajs/cron` (`src/schedules/`) |
+| Messaging | Kafka via `kafkajs` (`src/infra/kafka/`) |
+| Real-time | WebSocket via Elysia `.ws()` (Bun/uWebSockets) |
 | Container | Docker (`Dockerfile`, `docker-compose.yaml`) |
 
 Follow [Elysia best practices](https://elysiajs.com/essential/best-practice.html) when adding or refactoring features.
@@ -84,12 +86,15 @@ src/
 │   │   ├── routes.ts     # Elysia controller
 │   │   └── service.ts    # Business logic
 │   ├── signin/
-│   └── protected/
+│   ├── protected/
+│   ├── kafka/
+│   └── realtime/         # WebSocket example
 ├── middleware/           # Global / reusable Elysia plugins
 ├── models/
 │   ├── schemas/          # Request/response validation (Elysia t.*)
 │   └── errors/           # AppError + HTTP error helpers
 ├── infra/                # External integrations (auth, prisma, telemetry, etc.)
+│   ├── kafka/            # Kafka producer/consumer lifecycle
 │   ├── telemetry/        # OpenTelemetry wiring + Bun OTLP exporter
 │   └── sentry/           # Sentry error monitoring + performance tracing
 ├── schedules/            # Cron jobs (@elysiajs/cron)
@@ -169,6 +174,56 @@ export abstract class UserService {
 - Wire schemas into routes via `body`, `query`, `params`, etc.
 - Do **not** use route-level `response` schemas on handlers that return plain data — `responseMiddleware` wraps output in the global envelope and Elysia will validate against the wrong shape. Use `responseSchema` in OpenAPI/docs only if needed.
 - Do not duplicate interfaces separately from validation schemas.
+- WebSocket message/query schemas live in the same folder; use `body` and `query` on `.ws()` handlers.
+
+### WebSocket
+
+Elysia exposes WebSocket routes with `.ws()` (Bun/uWebSockets under the hood). See [Elysia WebSocket docs](https://elysiajs.com/patterns/websocket.html).
+
+- Keep `.ws()` handlers in `modules/<feature>/routes.ts` alongside HTTP routes when they belong to the same feature.
+- Validate incoming frames with `body`, `query`, `params`, etc. — same schema pattern as HTTP.
+- **Do not** return data from `message`/`open`/`close` expecting the HTTP response envelope. Send payloads with `ws.send()` directly.
+- Keep lifecycle hooks thin: `open`/`message`/`close` call static service methods; pass only what the service needs (e.g. `ws`, parsed message, `ws.data.query`).
+- Always `unregister` clients in `close` (and on errors) so connection registries do not leak.
+- Optional Bun WebSocket tuning is set on the root app in `src/server/index.ts` (`websocket: { idleTimeout: 120 }`).
+
+```typescript
+// src/modules/realtime/routes.ts
+import Elysia from "elysia";
+import { wsMessageSchema, wsQuerySchema } from "../../models/schemas/realtime";
+import { RealtimeService } from "./service";
+
+export default new Elysia({ name: "realtime", prefix: "/realtime", tags: ["WebSocket"] })
+  .get("/stats", () => RealtimeService.stats())
+  .ws("/ws", {
+    body: wsMessageSchema,
+    query: wsQuerySchema,
+    open(ws) {
+      RealtimeService.register(ws, ws.data.query.room);
+    },
+    message(ws, { message }) {
+      RealtimeService.handleMessage(ws, message, ws.data.query.room);
+    },
+    close(ws) {
+      RealtimeService.unregister(ws);
+    },
+  });
+```
+
+**Built-in example (template):**
+
+| Path | Type | Notes |
+| --- | --- | --- |
+| `GET /realtime/stats` | HTTP | Active WebSocket connection count |
+| `/realtime/ws` | WebSocket | Validated echo; optional `?room=` query param |
+
+Local test with [Bun WebSocket](https://bun.sh/docs/api/websockets) or browser devtools:
+
+```bash
+bun run dev
+# ws://localhost:3131/realtime/ws?room=lobby
+# send: {"message":"ping"}
+```
 
 ### Middleware
 
@@ -349,6 +404,7 @@ describe("My Feature", () => {
 - Always pass **`statusCode`** as the third argument to `createResponse` (required).
 - For **POST/PUT/PATCH** with JSON bodies, set `Content-Type: application/json` on the `Request`.
 - Prefer testing services in isolation (static methods) when logic does not need HTTP/Elysia context.
+- WebSocket integration is covered via service unit tests (`RealtimeService`); HTTP helpers like `GET /realtime/stats` use `app.handle`.
 - Add tests when changing routes, response envelope behavior, or auth flows.
 
 ### Current coverage (`__tests__/controller.test.ts`)
@@ -371,6 +427,8 @@ Reference implementations:
 - Simple module: `src/modules/health/`
 - Auth + service: `src/modules/signin/`
 - Protected routes: `src/modules/protected/`
+- Kafka produce/consume: `src/modules/kafka/`, `src/infra/kafka/`
+- WebSocket: `src/modules/realtime/`
 
 ## Prisma
 
@@ -385,6 +443,7 @@ Reference implementations:
 - Close watchers, timers, and server handles on shutdown (see `src/index.ts`).
 - In dev, the module file watcher calls `watcher.unref()` and closes itself after detecting a new route file — follow this pattern for new background resources.
 - Prefer stateless static services over accumulating instance caches unless eviction is explicit.
+- WebSocket client registries must remove entries in `close` handlers; avoid unbounded in-memory message history.
 - Cron timers are tied to the server process — they stop when `HttpServer.stop()` runs (see graceful shutdown in `src/index.ts`).
 
 ## Boundaries
@@ -425,12 +484,17 @@ After making changes:
 | POST | `/healthz/echo` | health | Echo body |
 | POST | `/signin` | signin | Returns JWT |
 | GET | `/protected` | protected | Requires Bearer token |
+| GET | `/kafka/status` | kafka | Kafka enabled flag + last consumed message |
+| POST | `/kafka/publish` | kafka | Publish example message |
+| GET | `/realtime/stats` | realtime | Active WebSocket connection count |
+| WS | `/realtime/ws` | realtime | Validated echo WebSocket (`?room=` optional) |
 | GET | `/help` | — | OpenAPI UI (also traces `GET /help/json`) |
 | * | `/*` (unmatched) | — | Returns 404 JSON envelope |
 
 ## Useful references
 
 - [Elysia best practices](https://elysiajs.com/essential/best-practice.html)
+- [Elysia WebSocket](https://elysiajs.com/patterns/websocket.html)
 - Human-oriented setup docs: `README.md`
-- Canonical patterns: `src/modules/signin/`, `src/middleware/response.ts`, `src/config/env.ts`, `src/infra/telemetry/`, `src/infra/sentry/`, `src/schedules/index.ts`, `__tests__/controller.test.ts`
+- Canonical patterns: `src/modules/signin/`, `src/modules/realtime/`, `src/middleware/response.ts`, `src/config/env.ts`, `src/infra/kafka/`, `src/infra/telemetry/`, `src/infra/sentry/`, `src/schedules/index.ts`, `__tests__/controller.test.ts`
 - Cron plugin: [@elysiajs/cron](https://elysiajs.com/plugins/cron.html)

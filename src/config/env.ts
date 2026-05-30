@@ -18,6 +18,11 @@ const envSchema = t.Object({
   ),
   DATABASE_URL: t.Optional(t.String()),
   JWT_SECRET: t.String({ default: "change-me-in-production" }),
+  KAFKA_ENABLED: t.Optional(t.String()),
+  KAFKA_BROKERS: t.Optional(t.String()),
+  KAFKA_CLIENT_ID: t.String({ default: "elysia-template" }),
+  KAFKA_GROUP_ID: t.String({ default: "elysia-template-consumer" }),
+  KAFKA_TOPIC: t.String({ default: "elysia.events" }),
 });
 
 const envValidator = getSchemaValidator(envSchema, {
@@ -34,6 +39,26 @@ function buildEnvFromSchema(schema: {
       return [key, value];
     }),
   );
+}
+
+function resolveKafkaEnabled(
+  raw: string | undefined,
+  nodeEnv: string,
+): boolean {
+  if (nodeEnv === "test") return false;
+  if (raw === "false" || raw === "0" || raw === "") return false;
+  if (raw === "true" || raw === "1") return true;
+  return nodeEnv === "development";
+}
+
+function parseKafkaBrokers(raw: string | undefined, nodeEnv: string) {
+  const value =
+    raw ?? (nodeEnv === "development" ? "localhost:9092" : undefined);
+  if (!value) return [];
+  return value
+    .split(",")
+    .map((broker) => broker.trim())
+    .filter(Boolean);
 }
 
 function resolveSentrySpotlight(
@@ -121,6 +146,9 @@ export function loadEnv() {
     env.NODE_ENV,
   );
 
+  const kafkaEnabled = resolveKafkaEnabled(env.KAFKA_ENABLED, env.NODE_ENV);
+  const kafkaBrokers = parseKafkaBrokers(env.KAFKA_BROKERS, env.NODE_ENV);
+
   return {
     env: env.NODE_ENV,
     server: {
@@ -136,6 +164,13 @@ export function loadEnv() {
     },
     jwt: {
       secret: env.JWT_SECRET,
+    },
+    kafka: {
+      enabled: kafkaEnabled && kafkaBrokers.length > 0,
+      brokers: kafkaBrokers,
+      clientId: env.KAFKA_CLIENT_ID,
+      groupId: env.KAFKA_GROUP_ID,
+      topic: env.KAFKA_TOPIC,
     },
   };
 }

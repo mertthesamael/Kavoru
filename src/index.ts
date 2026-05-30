@@ -1,17 +1,27 @@
 import { initSentry, flushSentry } from "./infra/sentry";
+import { startKafka, stopKafka } from "./infra/kafka";
 import { HttpServer } from "./server/index";
 import { logger } from "./common/logger";
+import { InternalServerError } from "elysia";
 
 initSentry();
 
 const server = new HttpServer();
 
-void server.start();
+void server.start().then(async () => {
+  try {
+    await startKafka();
+  } catch (error) {
+    logger.error("Failed to start Kafka", { error });
+    throw new InternalServerError("Failed to start Kafka");
+  }
+});
 
 const shutdown = (signal: string) => {
   return async () => {
     logger.warn(`Received ${signal}, shutting down`);
     await server.stop();
+    await stopKafka();
     await flushSentry();
     process.exit(0);
   };

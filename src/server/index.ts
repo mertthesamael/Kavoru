@@ -9,7 +9,11 @@ export class HttpServer {
   private server?: ReturnType<Elysia["listen"]>;
 
   constructor() {
-    this.app = new Elysia().use(registerModules);
+    this.app = new Elysia({
+      websocket: {
+        idleTimeout: 120,
+      },
+    }).use(registerModules);
     //.use(schedules); // #1 - optional cron job example
   }
 
