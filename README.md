@@ -1,153 +1,429 @@
 # Elysia Template
 
-A production-ready [ElysiaJS](https://elysiajs.com) backend template with Bun, TypeScript, Docker, and dynamic module loading.
+Production-ready backend template built with [ElysiaJS](https://elysiajs.com), [Bun](https://bun.sh), TypeScript, and PostgreSQL (Prisma). Includes JWT auth, OpenAPI docs, OpenTelemetry, Sentry, Kafka, WebSockets, Resend email, cron jobs, and Docker.
 
-## Prerequisites
+Default port: **3131**
 
-- [Bun](https://bun.sh) v1.0+
-- [Docker](https://docs.docker.com/get-docker/) (optional)
+## Tech stack
 
-## Quick Start
+| Layer | Choice |
+| --- | --- |
+| Runtime | Bun |
+| HTTP framework | Elysia |
+| Validation | Elysia `t` schemas |
+| Database | PostgreSQL + Prisma 7 |
+| Auth | JWT (`jose`) + `@elysiajs/bearer` |
+| Observability | OpenTelemetry + Sentry |
+| Messaging | Kafka (`kafkajs`) |
+| Email | Resend (`resend`) |
+| Real-time | WebSocket (Bun / uWebSockets) |
+| Scheduled tasks | `@elysiajs/cron` |
+| Container | Docker + Docker Compose |
+
+## Quick start
+
+### Prerequisites
+
+- [Bun](https://bun.sh) 1.1+
+- PostgreSQL (optional until you use Prisma migrations)
+- Docker (optional — Kafka, Jaeger, containerized app)
+
+### Install and run
 
 ```bash
-# Install dependencies
+git clone <your-repo-url>
+cd elysia-template
+
 bun install
-
-# Copy environment file
 cp .env.example .env
-
-# Edit .env (required variables: NODE_ENV, PORT)
-# NODE_ENV=development
-# PORT=3131
-
-# Run development server (with watch)
 bun run dev
-
-# Or run without watch
-bun run start
 ```
 
-The API will be available at `http://localhost:3131` (or your configured `PORT`).
+The API starts at `http://localhost:3131`. OpenAPI UI: [http://localhost:3131/help](http://localhost:3131/help)
 
-## Prisma
+### Scripts
 
-### Setup (New Project)
+| Command | Description |
+| --- | --- |
+| `bun run dev` | Dev server with hot reload |
+| `bun run start` | Prisma pull/generate + run |
+| `bun test` | Run tests |
+| `bun run build` | Compile standalone binary (Windows) |
+| `bun run build:docker` | Compile Linux x64 binary for Docker |
+| `bun run otel:view` | Local trace viewer (web UI) |
+| `bun run otel:tui` | Local trace viewer (terminal) |
+| `bun run sentry:spotlight` | Local Sentry UI |
 
-If starting fresh, initialize Prisma with a database:
+## Environment variables
+
+Copy `.env.example` to `.env`. All variables are validated in `src/config/env.ts`.
+
+| Variable | Default (dev) | Description |
+| --- | --- | --- |
+| `NODE_ENV` | `development` | `development` \| `test` \| `production` |
+| `PORT` | `3131` | HTTP port |
+| `DATABASE_URL` | _(unset)_ | PostgreSQL connection string |
+| `JWT_SECRET` | `change-me-in-production` | JWT signing secret |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318/v1/traces` | OTLP traces; set empty to disable |
+| `OTEL_SERVICE_NAME` | `elysia-template` | Service name in trace UI |
+| `SENTRY_SPOTLIGHT` | `true` in dev | Local Sentry UI; `false` to disable |
+| `SENTRY_DSN` | _(unset)_ | Optional sentry.io DSN |
+| `SENTRY_TRACES_SAMPLE_RATE` | `1.0` dev / `0.1` prod | Transaction sample rate |
+| `KAFKA_ENABLED` | enabled in dev | Set `false` to disable |
+| `KAFKA_BROKERS` | `localhost:9094` in dev | Comma-separated broker list |
+| `KAFKA_CLIENT_ID` | `elysia-template` | Kafka client ID |
+| `KAFKA_GROUP_ID` | `elysia-template-consumer` | Consumer group ID |
+| `KAFKA_TOPIC` | `elysia.events` | Default topic |
+| `RESEND_API_KEY` | _(unset)_ | Resend API key |
+| `RESEND_FROM` | _(unset)_ | Default sender, e.g. `Acme <onboarding@resend.dev>` |
+| `RESEND_ENABLED` | enabled when key set | Set `false` to disable |
+
+## Project structure
+
+```
+src/
+├── index.ts              # Entry point, graceful shutdown
+├── server/index.ts       # HttpServer wrapper
+├── config/               # Env loading
+├── modules/              # Feature modules (auto-discovered)
+│   ├── health/
+│   ├── signin/
+│   ├── protected/
+│   ├── kafka/
+│   └── realtime/
+├── middleware/           # Auth, response envelope
+├── models/schemas/       # Elysia validation schemas
+├── infra/                # External integrations
+│   ├── auth/
+│   ├── kafka/
+│   ├── resend/
+│   ├── telemetry/
+│   └── sentry/
+├── schedules/            # Cron jobs
+└── __tests__/            # Bun tests
+```
+
+New modules are picked up automatically: add `src/modules/<feature>/routes.ts` exporting an `Elysia` instance and restart (or save in dev — file watcher triggers reload).
+
+## Response envelope
+
+All HTTP handlers return a standard JSON envelope (unless they return a raw `Response`):
+
+**Success (status &lt; 400):**
+
+```json
+{
+  "status": 200,
+  "success": true,
+  "data": { "...": "..." },
+  "timestamp": "2026-06-01T12:00:00.000Z",
+  "path": "/healthz"
+}
+```
+
+**Error (status ≥ 400):**
+
+```json
+{
+  "status": 404,
+  "success": false,
+  "error": {
+    "code": "404",
+    "message": "Not Found"
+  },
+  "timestamp": "2026-06-01T12:00:00.000Z",
+  "path": "/unknown"
+}
+```
+
+---
+
+## API reference
+
+### Health
+
+```bash
+# Liveness check
+curl http://localhost:3131/healthz
+
+# Echo JSON body
+curl -X POST http://localhost:3131/healthz/echo \
+  -H "Content-Type: application/json" \
+  -d '{"message":"hello"}'
+```
+
+### Authentication
+
+Sign in returns a JWT. Protected routes require `Authorization: Bearer <token>`.
+
+```bash
+# Sign in
+curl -X POST http://localhost:3131/signin \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","password":"secret"}'
+
+# Response data.token — use as Bearer token
+TOKEN="<paste-token-here>"
+
+# Protected route
+curl http://localhost:3131/protected \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+The template uses placeholder credential validation (`signin/service.ts`). Replace with real DB lookup and password hashing before production.
+
+### Kafka
+
+Kafka is enabled by default in development when brokers are reachable. Start the broker with Docker:
+
+```bash
+docker compose up -d kafka
+```
+
+```bash
+# Status (enabled flag + last consumed message)
+curl http://localhost:3131/kafka/status
+
+# Publish a message
+curl -X POST http://localhost:3131/kafka/publish \
+  -H "Content-Type: application/json" \
+  -d '{"value":"hello from api","key":"optional-key"}'
+```
+
+Inside Docker Compose, the app uses `KAFKA_BROKERS=kafka:9092`. On the host, use `localhost:9094` (external listener).
+
+### WebSocket
+
+```bash
+# Active connection count
+curl http://localhost:3131/realtime/stats
+```
+
+Connect with a WebSocket client (browser devtools, [Bun WebSocket](https://bun.sh/docs/api/websockets), etc.):
+
+```
+ws://localhost:3131/realtime/ws?room=lobby
+```
+
+Send a validated JSON frame:
+
+```json
+{"message":"ping"}
+```
+
+The server echoes it back to the sender. Clients are tracked per room and cleaned up on disconnect.
+
+### OpenAPI
+
+Interactive API docs: [http://localhost:3131/help](http://localhost:3131/help)
+
+---
+
+## Email (Resend)
+
+Resend is **infra-only** — no HTTP routes. Call it from your feature services:
+
+```typescript
+import { isResendEnabled, sendEmail } from "../infra/resend";
+
+if (isResendEnabled()) {
+  const { id } = await sendEmail({
+    to: user.email,
+    subject: "Welcome",
+    html: "<p>Welcome aboard!</p>",
+  });
+}
+```
+
+Setup:
+
+1. Create an API key at [resend.com/api-keys](https://resend.com/api-keys)
+2. Add to `.env`:
+
+```env
+RESEND_API_KEY=re_xxxxxxxx
+RESEND_FROM=Acme <onboarding@resend.dev>
+```
+
+Disabled when `RESEND_API_KEY` is unset or in `NODE_ENV=test`. Verify your domain in the [Resend dashboard](https://resend.com/domains) for production senders.
+
+---
+
+## Observability
+
+### OpenTelemetry
+
+Enabled by default in development. Traces export to OTLP/HTTP.
+
+**Local (no Docker):**
+
+```bash
+# Terminal 1
+bun run otel:view
+
+# Terminal 2
+bun run dev
+```
+
+Open [http://localhost:4318](http://localhost:4318), hit any route, and traces appear under `elysia-template`.
+
+**Docker (Jaeger):**
+
+```bash
+docker compose up -d jaeger
+```
+
+Jaeger UI: [http://localhost:16686](http://localhost:16686). Inside compose, set `OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318/v1/traces`.
+
+Disable locally: `OTEL_EXPORTER_OTLP_ENDPOINT=`
+
+### Sentry
+
+**Local (Spotlight — no account required):**
+
+```bash
+# Terminal 1
+bun run sentry:spotlight
+
+# Terminal 2
+bun run dev
+```
+
+Open [http://localhost:8969](http://localhost:8969). Trigger a 5xx to see events, e.g. `GET /healthz/error`.
+
+**Cloud:** set `SENTRY_DSN` to also send to sentry.io. Disable Spotlight: `SENTRY_SPOTLIGHT=false`.
+
+---
+
+## Scheduled tasks (cron)
+
+Example jobs live in `src/schedules/index.ts` (daily, monthly, and a 10-second heartbeat). To enable them, uncomment in `src/server/index.ts`:
+
+```typescript
+import { schedules } from "../schedules";
+
+// in constructor:
+.use(schedules)
+```
+
+Jobs use `@elysiajs/cron` with Istanbul/UTC timezones. Keep `run` callbacks thin — delegate to service static methods.
+
+---
+
+## Database (Prisma)
+
+Prisma 7 is configured via `prisma.config.ts`. Schema output: `src/infra/prisma/`.
+
+**Initialize fresh:**
 
 ```bash
 bunx --bun prisma init --db --output ./src/infra/prisma
 ```
 
-This creates the schema at `src/infra/prisma/schema/` and migrations at `src/infra/prisma/migrations/`.
-
-**Required:** Add `DATABASE_URL` to your `.env`:
-
-```
-DATABASE_URL="postgresql://user:password@localhost:5432/your_database"
-```
-
-### Commands
+Set `DATABASE_URL` in `.env`, then:
 
 ```bash
-# Generate Prisma Client
+bunx --bun prisma migrate dev --name init
 bunx prisma generate
-
-# Create and apply migrations
-bunx --bun prisma migrate dev --name <migration_name>
-
-# Pull schema from existing database
-bunx prisma db pull
+bun run seed   # if seed script exists
 ```
 
-## Scripts
-
-| Command                | Description                              |
-| ---------------------- | ---------------------------------------- |
-| `bun run dev`          | Start dev server with hot reload         |
-| `bun run start`        | Run the app (no compilation)             |
-| `bun run build`        | Compile to a standalone binary (Windows) |
-| `bun run build:docker` | Compile for Linux x64 (for Docker)       |
-| `bun run start:prod`   | Run the compiled binary (Linux only)     |
-
-## Project Structure
-
-```
-src/
-├── index.ts           # Entry point
-├── config/            # Configuration & env validation
-├── server/            # HTTP server setup
-├── modules/           # Feature modules (auto-loaded)
-│   ├── index.ts       # Module loader (discovers */routes.ts)
-│   └── health/
-│       └── routes.ts  # Example: /health endpoint
-├── middleware/        # Global middleware
-├── common/            # Shared utilities (logger, etc.)
-├── models/            # Schemas, errors, types
-└── infra/             # Infrastructure
-    └── prisma/        # Schema, migrations, generated client
-        ├── schema/
-        ├── migrations/
-        └── client/
-```
-
-## Adding a New Module
-
-1. Create a folder under `src/modules/` (e.g. `src/modules/users/`).
-2. Add a `routes.ts` file that exports an Elysia instance:
-
-```typescript
-// src/modules/users/routes.ts
-import Elysia from "elysia";
-
-export default new Elysia({ prefix: "/users" })
-  .get("/", () => ({ users: [] }))
-  .get("/:id", ({ params: { id } }) => ({ id }));
-```
-
-3. Restart the server — the module is discovered and mounted automatically.
-
-## Environment Variables
-
-| Variable                      | Required | Default       | Description                                      |
-| ----------------------------- | -------- | ------------- | ------------------------------------------------ |
-| `NODE_ENV`                    | No       | `development` | `development` \| `test` \| `production`          |
-| `PORT`                        | No       | `3131`        | Server port                                      |
-| `DATABASE_URL`                | Yes*     | —             | PostgreSQL connection string (required for Prisma)|
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | No       | —             | OpenTelemetry endpoint (optional)                 |
-
-\* Required when using Prisma; add to `.env` before running migrations or `db pull`.
-
-Add new variables in `src/config/env.ts` (schema + validation).
+---
 
 ## Docker
 
-### Build & Run
-
 ```bash
-# Build image
 docker compose build
-
-# Run (requires .env with PORT)
 docker compose up -d
-
-# View logs
-docker compose logs -f app
 ```
 
-### Dockerfile
+Compose includes:
 
-- Uses `oven/bun` as base.
-- Compiles with `bun run build:docker` (Linux x64).
-- Runs the compiled binary for better performance.
+| Service | Purpose | Ports |
+| --- | --- | --- |
+| `app` | Compiled Bun binary | `${PORT}` (default 3131) |
+| `kafka` | Bitnami Kafka (KRaft) | `9094` (host) |
+| `jaeger` | Trace collector + UI | `16686`, `4318` |
 
-## API Endpoints
+Health check hits `GET /healthz`. App waits for Kafka on startup.
 
-| Method | Path      | Description             |
-| ------ | --------- | ----------------------- |
-| GET    | `/health` | Health check            |
-| GET    | `/help`   | Swagger UI (if enabled) |
+**Build standalone binary locally:**
+
+```bash
+bun run build          # Windows
+bun run build:docker   # Linux x64 (for Docker)
+./server               # or bun run start:prod
+```
+
+---
+
+## Testing
+
+```bash
+bun test
+```
+
+Tests use `app.handle(new Request(...))` — no listening server required. Assert the response envelope with `createResponse` from `src/middleware/response.ts`.
+
+Example:
+
+```typescript
+import { describe, expect, it } from "bun:test";
+import { Elysia } from "elysia";
+import { registerModules } from "../src/modules";
+import { createResponse } from "../src/middleware/response";
+
+describe("Health", () => {
+  it("returns ok", async () => {
+    const app = registerModules(new Elysia());
+    const response = await app
+      .handle(new Request("http://localhost/healthz"))
+      .then((res) => res.json());
+
+    expect(response).toEqual(createResponse("ok", "/healthz", 200));
+  });
+});
+```
+
+---
+
+## Adding a feature module
+
+1. Create `src/modules/<feature>/routes.ts`:
+
+```typescript
+import Elysia from "elysia";
+import { UserService } from "./service";
+
+export default new Elysia({ name: "users", prefix: "/users", tags: ["Users"] })
+  .get("/:id", ({ params: { id } }) => UserService.findById(id));
+```
+
+2. Add `service.ts` for business logic and schemas under `src/models/schemas/`.
+3. Restart dev server — routes are auto-loaded.
+
+Reference modules: `health/` (simple), `signin/` (auth + service), `protected/` (Bearer middleware), `kafka/`, `realtime/` (WebSocket).
+
+---
+
+## Graceful shutdown
+
+`SIGINT` / `SIGTERM` triggers:
+
+1. HTTP server stop
+2. Kafka consumer/producer disconnect
+3. Sentry flush
+
+See `src/index.ts`.
+
+---
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
+
+## Links
+
+- [Elysia best practices](https://elysiajs.com/essential/best-practice.html)
+- [Elysia WebSocket](https://elysiajs.com/patterns/websocket.html)
+- [Agent / contributor guide](AGENTS.md)
