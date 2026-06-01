@@ -39,7 +39,7 @@ export function registerModules(app: Elysia) {
         path: "/help",
         documentation: {
           info: {
-            title: "🦊 Elysia Template",
+            title: "🦊 Kavoru",
             version: config.version,
             description: "Built for humans.",
           },

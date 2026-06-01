@@ -288,7 +288,7 @@ Use `format: "uri"` (not `"url"`) for endpoint-style values that include paths (
 | Variable | Default (dev) | Description |
 | --- | --- | --- |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318/v1/traces` | OTLP/HTTP traces endpoint; set empty to disable |
-| `OTEL_SERVICE_NAME` | `elysia-template` | Service name in trace UI |
+| `OTEL_SERVICE_NAME` | `kavoru` | Service name in trace UI |
 | `SENTRY_DSN` | _(unset)_ | Sentry project DSN; optional when using Spotlight locally |
 | `SENTRY_SPOTLIGHT` | `true` in dev | `true`/`1`, `false`/`0`/empty, or sidecar URL (e.g. `http://localhost:8969/stream`) |
 | `SENTRY_TRACES_SAMPLE_RATE` | `1.0` dev / `0.1` prod | Fraction of transactions sent to Sentry |
@@ -344,7 +344,7 @@ Create an API key at [resend.com/api-keys](https://resend.com/api-keys). Use a [
 - Spans are created automatically per request (Root, Request, Parse, Handle, etc.) by the Elysia OTEL plugin — do **not** add custom request-logging middleware.
 - Unknown paths: catch-all in `src/modules/index.ts` ensures 404s get a full span tree; exporter fixes display name and error status.
 - Local viewing: `bun run otel:view` (terminal 1) + `bun run dev` (terminal 2). Traces appear under `OTEL_SERVICE_NAME` within ~1s in dev.
-- otel-dev shows the **service name** (`elysia-template`) on every trace — that is normal. Span title uses the route (e.g. `GET /healthz/`).
+- otel-dev shows the **service name** (`kavoru`) on every trace — that is normal. Span title uses the route (e.g. `GET /healthz/`).
 - Visiting `/help` also traces `GET /help/json` (OpenAPI spec fetch). URL hash fragments (e.g. `#tag/authentication`) are client-only and never appear in spans.
 - Docker alternative: Jaeger in `docker-compose.yaml` (UI at http://localhost:16686). Use `http://jaeger:4318/v1/traces` when the app runs inside compose.
 

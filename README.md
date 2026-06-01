@@ -1,6 +1,8 @@
-# Elysia Template
+# Kavoru
 
-Production-ready backend template built with [ElysiaJS](https://elysiajs.com), [Bun](https://bun.sh), TypeScript, and PostgreSQL (Prisma). Includes JWT auth, OpenAPI docs, OpenTelemetry, Sentry, Kafka, WebSockets, Resend email, cron jobs, and Docker.
+Production-ready backend starter built with [ElysiaJS](https://elysiajs.com), [Bun](https://bun.sh), TypeScript, and PostgreSQL (Prisma). Includes JWT auth, OpenAPI docs, OpenTelemetry, Sentry, Kafka, WebSockets, Resend email, cron jobs, and Docker.
+
+Official repo (GitHub template): [github.com/mertthesamael/Kavoru](https://github.com/mertthesamael/Kavoru)
 
 Default port: **3131**
 
@@ -30,9 +32,11 @@ Default port: **3131**
 
 ### Install and run
 
+Use **[Use this template](https://github.com/mertthesamael/Kavoru/generate)** on GitHub, or clone directly:
+
 ```bash
-git clone <your-repo-url>
-cd elysia-template
+git clone https://github.com/mertthesamael/Kavoru.git
+cd Kavoru
 
 bun install
 cp .env.example .env
@@ -65,14 +69,14 @@ Copy `.env.example` to `.env`. All variables are validated in `src/config/env.ts
 | `DATABASE_URL` | _(unset)_ | PostgreSQL connection string |
 | `JWT_SECRET` | `change-me-in-production` | JWT signing secret |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318/v1/traces` | OTLP traces; set empty to disable |
-| `OTEL_SERVICE_NAME` | `elysia-template` | Service name in trace UI |
+| `OTEL_SERVICE_NAME` | `kavoru` | Service name in trace UI |
 | `SENTRY_SPOTLIGHT` | `true` in dev | Local Sentry UI; `false` to disable |
 | `SENTRY_DSN` | _(unset)_ | Optional sentry.io DSN |
 | `SENTRY_TRACES_SAMPLE_RATE` | `1.0` dev / `0.1` prod | Transaction sample rate |
 | `KAFKA_ENABLED` | enabled in dev | Set `false` to disable |
 | `KAFKA_BROKERS` | `localhost:9094` in dev | Comma-separated broker list |
-| `KAFKA_CLIENT_ID` | `elysia-template` | Kafka client ID |
-| `KAFKA_GROUP_ID` | `elysia-template-consumer` | Consumer group ID |
+| `KAFKA_CLIENT_ID` | `kavoru` | Kafka client ID |
+| `KAFKA_GROUP_ID` | `kavoru-consumer` | Consumer group ID |
 | `KAFKA_TOPIC` | `elysia.events` | Default topic |
 | `RESEND_API_KEY` | _(unset)_ | Resend API key |
 | `RESEND_FROM` | _(unset)_ | Default sender, e.g. `Acme <onboarding@resend.dev>` |
@@ -265,7 +269,7 @@ bun run otel:view
 bun run dev
 ```
 
-Open [http://localhost:4318](http://localhost:4318), hit any route, and traces appear under `elysia-template`.
+Open [http://localhost:4318](http://localhost:4318), hit any route, and traces appear under `kavoru`.
 
 **Docker (Jaeger):**
 

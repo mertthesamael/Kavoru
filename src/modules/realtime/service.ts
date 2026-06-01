@@ -20,7 +20,7 @@ export abstract class RealtimeService {
 
     const welcome: typeof wsOutgoingMessageSchema.static = {
       type: "welcome",
-      message: "Connected to elysia-template realtime",
+      message: "Connected to Kavoru realtime",
       timestamp: new Date().toISOString(),
       ...(room ? { room } : {}),
     };
