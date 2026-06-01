@@ -23,6 +23,9 @@ const envSchema = t.Object({
   KAFKA_CLIENT_ID: t.String({ default: "elysia-template" }),
   KAFKA_GROUP_ID: t.String({ default: "elysia-template-consumer" }),
   KAFKA_TOPIC: t.String({ default: "elysia.events" }),
+  RESEND_API_KEY: t.Optional(t.String()),
+  RESEND_FROM: t.Optional(t.String()),
+  RESEND_ENABLED: t.Optional(t.String()),
 });
 
 const envValidator = getSchemaValidator(envSchema, {
@@ -49,6 +52,18 @@ function resolveKafkaEnabled(
   if (raw === "false" || raw === "0" || raw === "") return false;
   if (raw === "true" || raw === "1") return true;
   return nodeEnv === "development";
+}
+
+function resolveResendEnabled(
+  raw: string | undefined,
+  apiKey: string | undefined,
+  nodeEnv: string,
+): boolean {
+  if (nodeEnv === "test") return false;
+  if (raw === "false" || raw === "0" || raw === "") return false;
+  if (!apiKey) return false;
+  if (raw === "true" || raw === "1") return true;
+  return true;
 }
 
 function parseKafkaBrokers(raw: string | undefined, nodeEnv: string) {
@@ -149,6 +164,12 @@ export function loadEnv() {
   const kafkaEnabled = resolveKafkaEnabled(env.KAFKA_ENABLED, env.NODE_ENV);
   const kafkaBrokers = parseKafkaBrokers(env.KAFKA_BROKERS, env.NODE_ENV);
 
+  const resendEnabled = resolveResendEnabled(
+    env.RESEND_ENABLED,
+    env.RESEND_API_KEY,
+    env.NODE_ENV,
+  );
+
   return {
     env: env.NODE_ENV,
     server: {
@@ -171,6 +192,11 @@ export function loadEnv() {
       clientId: env.KAFKA_CLIENT_ID,
       groupId: env.KAFKA_GROUP_ID,
       topic: env.KAFKA_TOPIC,
+    },
+    resend: {
+      enabled: resendEnabled,
+      apiKey: env.RESEND_API_KEY,
+      from: env.RESEND_FROM,
     },
   };
 }

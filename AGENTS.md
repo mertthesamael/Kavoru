@@ -24,6 +24,7 @@ Production-ready **ElysiaJS** backend template using **Bun**, **TypeScript**, **
 | Observability | OpenTelemetry (`src/infra/telemetry/`) + Sentry (`src/infra/sentry/`) |
 | Scheduled tasks | `@elysiajs/cron` (`src/schedules/`) |
 | Messaging | Kafka via `kafkajs` (`src/infra/kafka/`) |
+| Email | Resend via `resend` (`src/infra/resend/`) |
 | Real-time | WebSocket via Elysia `.ws()` (Bun/uWebSockets) |
 | Container | Docker (`Dockerfile`, `docker-compose.yaml`) |
 
@@ -95,6 +96,7 @@ src/
 │   └── errors/           # AppError + HTTP error helpers
 ├── infra/                # External integrations (auth, prisma, telemetry, etc.)
 │   ├── kafka/            # Kafka producer/consumer lifecycle
+│   ├── resend/           # Resend email client (lazy singleton)
 │   ├── telemetry/        # OpenTelemetry wiring + Bun OTLP exporter
 │   └── sentry/           # Sentry error monitoring + performance tracing
 ├── schedules/            # Cron jobs (@elysiajs/cron)
@@ -124,6 +126,7 @@ Register new global plugins **after** `withSentry` / `withOpenTelemetry` so they
 | Middleware | `middleware/` | Cross-cutting Elysia plugins (auth, response) |
 | Telemetry | `infra/telemetry/` | OpenTelemetry SDK + Bun-compatible OTLP export |
 | Sentry | `infra/sentry/` | Error monitoring + performance tracing via `@sentry/elysia` |
+| Resend | `infra/resend/` | Transactional email via Resend SDK (no HTTP module) |
 | Schedules | `schedules/` | Background cron jobs (not HTTP routes) |
 
 `HttpServer` mounts plugins as: `registerModules` → `schedules` (see `src/server/index.ts`). Cron runs for the lifetime of the process while the server is listening.
@@ -289,6 +292,34 @@ Use `format: "uri"` (not `"url"`) for endpoint-style values that include paths (
 | `SENTRY_DSN` | _(unset)_ | Sentry project DSN; optional when using Spotlight locally |
 | `SENTRY_SPOTLIGHT` | `true` in dev | `true`/`1`, `false`/`0`/empty, or sidecar URL (e.g. `http://localhost:8969/stream`) |
 | `SENTRY_TRACES_SAMPLE_RATE` | `1.0` dev / `0.1` prod | Fraction of transactions sent to Sentry |
+| `RESEND_API_KEY` | _(unset)_ | Resend API key; required to enable sending |
+| `RESEND_FROM` | _(unset)_ | Default sender, e.g. `Acme <onboarding@resend.dev>` |
+| `RESEND_ENABLED` | enabled when key set | Set `false`/`0`/empty to disable even when a key is present |
+
+### Resend
+
+- Wired in `src/infra/resend/` via the official [`resend`](https://resend.com/docs/send-with-nodejs) SDK.
+- **Infra-only** — no example HTTP module. Call `sendEmail()` from feature services (e.g. sign-in, notifications).
+- Lazy singleton client in `src/infra/resend/client.ts`; no process startup/shutdown hooks (stateless HTTP API).
+- Enabled when `RESEND_API_KEY` is set; always **disabled in test**. Set `RESEND_ENABLED=false` to turn off while keeping the key in `.env`.
+- `RESEND_FROM` is the default `from` address; per-send `from` in `SendEmailInput` overrides it.
+- Either `html` or `text` (or both) is required on each send. The SDK union type is satisfied by building the body object after a runtime guard — do not pass `html: string | undefined` and `text: string | undefined` directly to `client.emails.send()`.
+- Throws plain `Error` on failure (Resend API errors, missing sender, disabled client). Map to HTTP responses in the calling service with `status()` when needed.
+- `isResendEnabled()` for feature-level guards before attempting a send.
+
+```typescript
+import { isResendEnabled, sendEmail } from "../../infra/resend";
+
+if (isResendEnabled()) {
+  await sendEmail({
+    to: user.email,
+    subject: "Welcome",
+    html: "<p>Welcome aboard!</p>",
+  });
+}
+```
+
+Create an API key at [resend.com/api-keys](https://resend.com/api-keys). Use a [verified domain](https://resend.com/domains) for production `from` addresses.
 
 ### Sentry
 
@@ -445,6 +476,7 @@ Reference implementations:
 - Prefer stateless static services over accumulating instance caches unless eviction is explicit.
 - WebSocket client registries must remove entries in `close` handlers; avoid unbounded in-memory message history.
 - Cron timers are tied to the server process — they stop when `HttpServer.stop()` runs (see graceful shutdown in `src/index.ts`).
+- Resend uses a lazy singleton with no disconnect step; `resetResendClient()` exists for tests only.
 
 ## Boundaries
 
@@ -496,5 +528,5 @@ After making changes:
 - [Elysia best practices](https://elysiajs.com/essential/best-practice.html)
 - [Elysia WebSocket](https://elysiajs.com/patterns/websocket.html)
 - Human-oriented setup docs: `README.md`
-- Canonical patterns: `src/modules/signin/`, `src/modules/realtime/`, `src/middleware/response.ts`, `src/config/env.ts`, `src/infra/kafka/`, `src/infra/telemetry/`, `src/infra/sentry/`, `src/schedules/index.ts`, `__tests__/controller.test.ts`
+- Canonical patterns: `src/modules/signin/`, `src/modules/realtime/`, `src/middleware/response.ts`, `src/config/env.ts`, `src/infra/kafka/`, `src/infra/resend/`, `src/infra/telemetry/`, `src/infra/sentry/`, `src/schedules/index.ts`, `__tests__/controller.test.ts`
 - Cron plugin: [@elysiajs/cron](https://elysiajs.com/plugins/cron.html)

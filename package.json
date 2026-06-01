@@ -28,7 +28,8 @@
     "@prisma/client": "^7.8.0",
     "@sentry/elysia": "^10.55.0",
     "elysia": "latest",
-    "kafkajs": "^2.2.4"
+    "kafkajs": "^2.2.4",
+    "resend": "^6.12.4"
   },
   "devDependencies": {
     "bun-types": "latest",
