@@ -32,7 +32,15 @@ Default port: **3131**
 
 ### Install and run
 
-Use **[Use this template](https://github.com/mertthesamael/Kavoru/generate)** on GitHub, or clone directly:
+**Recommended** — scaffold with the CLI (after the [`kavoru`](https://www.npmjs.com/package/kavoru) package is published):
+
+```bash
+bunx kavoru my-api
+cd my-api
+bun run dev
+```
+
+Or use **[Use this template](https://github.com/mertthesamael/Kavoru/generate)** on GitHub, or clone directly:
 
 ```bash
 git clone https://github.com/mertthesamael/Kavoru.git
