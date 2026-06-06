@@ -12,6 +12,7 @@
     "dev": "bunx prisma generate && bun run --watch src/index.ts",
     "routes:registry": "bun run scripts/generate-route-registry.ts",
     "link-cli": "bun scripts/link-cli.ts",
+    "postinstall": "bun scripts/link-cli.ts",
     "build:docker": "bun run routes:registry && bun build --compile --env=disable --minify-whitespace --minify-syntax --target=bun-linux-x64 --outfile server ./src/index.ts",
     "seed": "bun run src/infra/prisma/seed/index.ts",
     "otel:view": "bunx otel-dev --web",

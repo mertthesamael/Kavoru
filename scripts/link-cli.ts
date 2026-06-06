@@ -13,6 +13,16 @@ function resolveBunBinDir(): string {
   return path.join(bunInstall, "bin");
 }
 
+function writeUnixShim(shimPath: string, binScript: string): void {
+  const escaped = binScript.replace(/\\/g, "/").replace(/"/g, '\\"');
+  writeFileSync(
+    shimPath,
+    `#!/usr/bin/env sh\nexec bun "${escaped}" "$@"\n`,
+    "utf8",
+  );
+  chmodSync(shimPath, 0o755);
+}
+
 export function linkProjectCli(
   projectRoot = path.join(import.meta.dir, ".."),
 ): string {
@@ -35,23 +45,29 @@ export function linkProjectCli(
     }
 
     const cmdPath = path.join(bunBinDir, "kavoru.cmd");
-    const escaped = binScript.replace(/"/g, '""');
-    writeFileSync(cmdPath, `@echo off\r\nbun "${escaped}" %*\r\n`, "utf8");
-    return cmdPath;
+    const escapedCmd = binScript.replace(/"/g, '""');
+    writeFileSync(cmdPath, `@echo off\r\nbun "${escapedCmd}" %*\r\n`, "utf8");
+
+    const shPath = path.join(bunBinDir, "kavoru");
+    writeUnixShim(shPath, binScript);
+    return shPath;
   }
 
   const shimPath = path.join(bunBinDir, "kavoru");
-  const escaped = binScript.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  writeFileSync(
-    shimPath,
-    `#!/usr/bin/env sh\nexec bun "${escaped}" "$@"\n`,
-    "utf8",
-  );
-  chmodSync(shimPath, 0o755);
+  writeUnixShim(shimPath, binScript);
   return shimPath;
 }
 
 if (import.meta.main) {
+  if (process.env.CI === "true" || process.env.CI === "1") {
+    process.exit(0);
+  }
+
   const linked = linkProjectCli();
-  console.log(`Linked ${linked} -> ${path.resolve(import.meta.dir, "../bin/kavoru.js")}`);
+  console.log(
+    `Linked ${linked} -> ${path.resolve(import.meta.dir, "../bin/kavoru.js")}`,
+  );
+  if (process.platform === "win32") {
+    console.log(`Linked ${path.join(resolveBunBinDir(), "kavoru.cmd")}`);
+  }
 }

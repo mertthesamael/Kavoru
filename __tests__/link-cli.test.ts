@@ -33,7 +33,13 @@ describe("link-cli", () => {
     expect(existsSync(linked)).toBe(true);
 
     const shim = readFileSync(linked, "utf8");
-    expect(shim).toContain(path.join(projectRoot, "bin", "kavoru.js"));
+    expect(shim).toContain(path.join(projectRoot, "bin", "kavoru.js").replace(/\\/g, "/"));
+
+    if (process.platform === "win32") {
+      const cmdPath = path.join(tempRoot, "bin", "kavoru.cmd");
+      expect(existsSync(cmdPath)).toBe(true);
+      expect(readFileSync(cmdPath, "utf8")).toContain("kavoru.js");
+    }
   });
 });
 
