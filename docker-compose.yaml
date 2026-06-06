@@ -6,7 +6,7 @@ services:
       target: build
       args:
         PORT: ${PORT:-3131}
-    command: /app/server
+    command: ./server
     volumes:
       - ./src:/app/src
     networks:
@@ -19,17 +19,39 @@ services:
       - "${PORT:-3131}:${PORT:-3131}"
     restart: unless-stopped
     env_file:
-      - .env
+      - path: .env
+        required: false
       - docker/app/.env
     depends_on:
+      postgres:
+        condition: service_healthy
       kafka:
         condition: service_started
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:${PORT}/healthz"]
+      test: ["CMD", "curl", "-f", "http://localhost:${PORT:-3131}/healthz"]
       interval: 600s
       timeout: 300s
       retries: 1
-      start_period: 40s
+      start_period: 90s
+
+  postgres:
+    build:
+      context: docker/postgres
+    hostname: postgres
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    env_file:
+      - docker/postgres/.env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
 
   kafka:
     build:
@@ -68,3 +90,6 @@ services:
 networks:
   app_network:
     driver: bridge
+
+volumes:
+  postgres_data:

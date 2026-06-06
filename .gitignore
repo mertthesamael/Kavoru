@@ -45,8 +45,6 @@ package-lock.json
 
 /.env
 
-/src/generated/prisma
+# generated prisma client (recreated by prisma generate)
+/src/infra/prisma/generated
 
-/src/generated/prisma
-
-/src/infra/prisma
