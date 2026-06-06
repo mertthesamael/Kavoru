@@ -14,7 +14,7 @@ Usage: kavoru <command> [options]
 Project CLI for Kavoru apps.
 
 Commands:
-  module <name>   Generate src/modules/<name> (routes, service, types)
+  module <name>   Generate CRUD module + src/models/schemas/<name>.ts
 
 Options:
   -h, --help      Show help
@@ -23,7 +23,6 @@ Options:
 Examples:
   kavoru module users
   kavoru module user-profile --force
-  bun run kavoru module billing
 `;
 
 function printHelp(): void {
@@ -41,6 +40,7 @@ Usage: kavoru module <module-name> [options]
 
 Generate a feature module under src/modules/<module-name>/ with:
   routes.ts, service.ts, types.ts
+  src/models/schemas/<module-name>.ts (query, body, params schemas)
 
 Options:
   -f, --force   Overwrite an existing module folder
@@ -62,11 +62,10 @@ Examples:
 
   const slug = await generateModule(name, { force });
   console.log(`Created module "src/modules/${slug}"`);
+  console.log(`Created schema "src/models/schemas/${slug}.ts"`);
 }
 
-async function main(): Promise<void> {
-  const argv = process.argv.slice(2);
-
+export async function runKavoruCli(argv = process.argv.slice(2)): Promise<void> {
   if (argv.length === 0 || argv.includes("-h") || argv.includes("--help")) {
     printHelp();
     return;
@@ -93,7 +92,7 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.main) {
-  main().catch((error) => {
+  runKavoruCli().catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
     console.error(message);
     process.exit(1);

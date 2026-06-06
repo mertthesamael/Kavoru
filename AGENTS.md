@@ -53,10 +53,11 @@ bunx prisma generate
 bunx --bun prisma db push          # sync schema to local Postgres (dev)
 bunx --bun prisma migrate dev --name <name>  # optional: versioned migrations
 
-# Project CLI (generate modules, etc.)
-bun run kavoru --help
-bun run kavoru module <name>       # e.g. bun run kavoru module billing
-bun run module <name>              # shorthand
+# Project CLI (cli feature)
+bun run link-cli                    # once: put kavoru on PATH (~/.bun/bin)
+kavoru module <name>                # bare command after link-cli
+.\kavoru.cmd module <name>          # Windows fallback from project root
+./kavoru module <name>              # macOS/Linux fallback from project root
 
 # Docker
 docker compose up --build          # Postgres + stack; app runs prisma db push on start
@@ -502,11 +503,11 @@ describe("My Feature", () => {
 **Preferred — project CLI:**
 
 ```bash
-bun run kavoru module <feature>     # creates routes.ts, service.ts, types.ts
-bun run kavoru module billing --force
+kavoru module <feature>     # creates routes.ts, service.ts, types.ts
+kavoru module billing --force
 ```
 
-This scaffolds `src/modules/<feature>/` matching the `test` module pattern, then regenerates `routes.registry.ts`.
+This scaffolds `src/modules/<feature>/` with mock CRUD routes (GET list/detail, POST, PUT, DELETE), a matching schema file under `src/models/schemas/<feature>.ts`, then regenerates `routes.registry.ts`.
 
 **Manual steps (when not using the CLI):**
 
@@ -531,16 +532,17 @@ Local CLI for day-to-day work inside a Kavoru app (not the npm scaffold CLI):
 
 | Entry | Example |
 | --- | --- |
-| `bun run kavoru` | `bun run scripts/kavoru-cli.ts` |
-| `bin/kavoru.js` | `./node_modules/.bin/kavoru` after `bun install` |
+| `bun run link-cli` | Writes `~/.bun/bin/kavoru` shim → `bin/kavoru.js` (run once) |
+| `kavoru` / `kavoru.cmd` | root shims → `bin/kavoru.js` (from project root) |
+| Global npm `kavoru` | `kavoru module users` (initializer CLI; delegates to project scripts) |
 
 | Command | Description |
 | --- | --- |
-| `kavoru module <name>` | Generate module scaffold + update `routes.registry.ts` |
+| `kavoru module <name>` | Generate CRUD module scaffold + `src/models/schemas/<name>.ts` + update `routes.registry.ts` |
 | `kavoru --help` | List commands |
 | `kavoru --version` | Package version |
 
-Implementation: `scripts/kavoru-cli.ts` (commands), `scripts/generate-module.ts` (scaffold logic), `scripts/generate-route-registry.ts` (registry).
+Implementation: `scripts/kavoru-cli.ts` (commands), `scripts/generate-module.ts` (scaffold logic), `scripts/link-cli.ts` (PATH shim), `scripts/generate-route-registry.ts` (registry).
 
 ## Prisma
 
@@ -601,7 +603,7 @@ After making changes:
 5. For telemetry changes: run `bun run otel:view`, hit a route, confirm trace name/status in the UI (4xx should show **ERROR**, not OK).
 6. For error responses: confirm `success: false` and an `error` object when status is 400 or above.
 7. For Prisma changes: edit schema → `bunx prisma generate` → `bunx --bun prisma db push` (or restart Docker app for automatic push).
-8. For new modules: `bun run kavoru module <name>` and confirm route appears at `/help`.
+8. For new modules: `kavoru module <name>` and confirm route appears at `/help`.
 
 ## Current endpoints (reference)
 
