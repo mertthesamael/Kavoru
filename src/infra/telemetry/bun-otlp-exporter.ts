@@ -100,6 +100,31 @@ function resolveDisplayName(
   return undefined;
 }
 
+function isSentrySpan(span: ReadableSpan): boolean {
+  return (
+    span.attributes["sentry.origin"] !== undefined ||
+    span.attributes["sentry.op"] !== undefined
+  );
+}
+
+function stripRemovedParents(
+  spans: readonly ReadableSpan[],
+): ReadableSpan[] {
+  const keptIds = new Set(spans.map((span) => span.spanContext().spanId));
+
+  return spans.map((span) => {
+    const parentId = span.parentSpanContext?.spanId;
+    if (!parentId || keptIds.has(parentId)) return span;
+
+    return new Proxy(span, {
+      get(target, prop, receiver) {
+        if (prop === "parentSpanContext") return undefined;
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+  });
+}
+
 function withExportedShape(
   span: ReadableSpan,
   traceRouteLabel?: string,
@@ -142,22 +167,28 @@ export class BunOtlpTraceExporter implements SpanExporter {
       return;
     }
 
-    for (const span of spans) {
+    const elysiaSpans = stripRemovedParents(spans.filter((span) => !isSentrySpan(span)));
+    if (elysiaSpans.length === 0) {
+      resultCallback({ code: ExportResultCode.SUCCESS });
+      return;
+    }
+
+    for (const span of elysiaSpans) {
       const traceId = span.spanContext().traceId;
       const label = httpRouteLabel(span);
       if (label) this.routeByTraceId.set(traceId, label);
     }
 
     const traceRouteLabels = resolveTraceRouteLabels(
-      spans,
+      elysiaSpans,
       this.routeByTraceId,
     );
 
     const payload = JsonTraceSerializer.serializeRequest(
-      spans.map((span) => {
+      elysiaSpans.map((span) => {
         const traceId = span.spanContext().traceId;
         const label = pickTraceRouteLabel(
-          spans,
+          elysiaSpans,
           traceId,
           traceRouteLabels.get(traceId),
         );
@@ -210,4 +241,6 @@ export const __testing = {
   pickTraceRouteLabel,
   isOrphanSpan,
   isServerRoot,
+  isSentrySpan,
+  stripRemovedParents,
 };

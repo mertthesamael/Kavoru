@@ -65,6 +65,17 @@ describe("bun-otlp-exporter", () => {
     ).toBe("GET /healthz/");
   });
 
+  it("drops sentry spans from export", () => {
+    const sentry = mockSpan({
+      name: "anonymous",
+      attributes: {
+        "sentry.op": "middleware.elysia",
+        "sentry.origin": "auto.http.elysia",
+      },
+    });
+    expect(__testing.isSentrySpan(sentry)).toBe(true);
+  });
+
   it("renames Request spans to method and path", () => {
     const span = mockSpan({
       name: "Request",

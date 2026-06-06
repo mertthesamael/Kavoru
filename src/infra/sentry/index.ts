@@ -116,8 +116,52 @@ export function initSentry() {
   initialized = true;
 }
 
+function isOtelTracingEnabled() {
+  return Boolean(config.env.server.otelExporterOtlpEndpoint);
+}
+
+function attachSentryErrorHandlers(app: Elysia) {
+  return app.onError({ as: "global" }, (ctx) => {
+    if (!("error" in ctx)) return;
+
+    captureStatusResponse({
+      error: (ctx as { error: unknown }).error,
+      set: ctx.set,
+      request: ctx.request,
+      route: ctx.route,
+      path: ctx.path,
+    });
+
+    const error = (ctx as { error: unknown }).error;
+    if (isElysiaStatusResponse(error)) return;
+    if (
+      !shouldCaptureHttpError({
+        error,
+        set: ctx.set,
+      })
+    ) {
+      return;
+    }
+
+    if (error instanceof Error) {
+      Sentry.captureException(error, {
+        mechanism: {
+          type: "http.elysia.on_error",
+          handled: false,
+        },
+      });
+    }
+  });
+}
+
 export function withSentry(app: Elysia) {
   if (!isSentryEnabled()) return app;
+
+  // Sentry.withElysia creates duplicate OTEL spans (anonymous) that break otel-dev.
+  // When exporting to otel-dev, keep Sentry for errors/Spotlight only.
+  if (isOtelTracingEnabled()) {
+    return attachSentryErrorHandlers(app);
+  }
 
   const instrumented = Sentry.withElysia(app, {
     shouldHandleError: (ctx) => {
