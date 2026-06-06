@@ -23,7 +23,9 @@ services:
       kafka:
         condition: service_started
     environment:
+      NODE_ENV: production
       KAFKA_BROKERS: kafka:9092
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${PORT}/healthz"]
       interval: 600s
@@ -67,7 +69,4 @@ services:
 
 networks:
   app_network:
-    name: app_network
     driver: bridge
-
-version: "3.8"

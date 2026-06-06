@@ -16,7 +16,9 @@ for (const file of routeGlob.scanSync(modulesDir)) {
   knownRouteFiles.add(file.replaceAll("\\", "/"));
 }
 
-if (config.env.env !== "production") {
+const isCompiledBinary = import.meta.path.includes("$bunfs");
+
+if (config.env.env !== "production" && !isCompiledBinary) {
   const watcher = watch(modulesDir, { recursive: true }, (_event, filename) => {
     if (!filename?.endsWith("routes.ts")) return;
     const normalized = filename.replaceAll("\\", "/");
