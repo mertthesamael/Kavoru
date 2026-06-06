@@ -62,6 +62,9 @@ export class BunOtlpTraceExporter implements SpanExporter {
     })
       .then((response) => {
         if (!response.ok) {
+          console.error(
+            `[OTEL] export failed: ${response.status} ${response.statusText} → ${this.url}`,
+          );
           resultCallback({
             code: ExportResultCode.FAILED,
             error: new Error(`OTLP export failed: ${response.status}`),
@@ -72,6 +75,7 @@ export class BunOtlpTraceExporter implements SpanExporter {
         resultCallback({ code: ExportResultCode.SUCCESS });
       })
       .catch((error: unknown) => {
+        console.error(`[OTEL] export error → ${this.url}`, error);
         resultCallback({
           code: ExportResultCode.FAILED,
           error: error instanceof Error ? error : new Error(String(error)),

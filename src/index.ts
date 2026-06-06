@@ -1,9 +1,14 @@
 import { initSentry, flushSentry } from "./infra/sentry";
+import {
+  bootstrapOpenTelemetry,
+  shutdownOpenTelemetry,
+} from "./infra/telemetry";
 import { startKafka, stopKafka } from "./infra/kafka";
 import { HttpServer } from "./server/index";
 import { logger } from "./common/logger";
 import { InternalServerError } from "elysia";
 
+bootstrapOpenTelemetry();
 initSentry();
 
 const server = new HttpServer();
@@ -23,6 +28,7 @@ const shutdown = (signal: string) => {
     await server.stop();
     await stopKafka();
     await flushSentry();
+    await shutdownOpenTelemetry();
     process.exit(0);
   };
 };

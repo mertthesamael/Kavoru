@@ -14,8 +14,8 @@ services:
           - app
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    expose:
-      - "${PORT}"
+    ports:
+      - "${PORT:-3131}:${PORT:-3131}"
     restart: unless-stopped
     env_file:
       - .env
@@ -26,6 +26,8 @@ services:
       NODE_ENV: production
       KAFKA_BROKERS: kafka:9092
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-kavoru}
+      SENTRY_SPOTLIGHT: http://spotlight:8969/stream
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${PORT}/healthz"]
       interval: 600s
@@ -63,6 +65,14 @@ services:
       - "4318:4318"
     environment:
       COLLECTOR_OTLP_ENABLED: "true"
+    networks:
+      - app_network
+    restart: unless-stopped
+
+  spotlight:
+    image: ghcr.io/getsentry/spotlight:latest
+    ports:
+      - "8969:8969"
     networks:
       - app_network
     restart: unless-stopped

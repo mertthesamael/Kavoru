@@ -316,6 +316,14 @@ bun run dev
 
 Open [http://localhost:8969](http://localhost:8969). Trigger a 5xx to see events, e.g. `GET /healthz/error`.
 
+**Docker (Spotlight sidecar):**
+
+```bash
+docker compose up -d spotlight
+```
+
+Spotlight UI: [http://localhost:8969](http://localhost:8969). The app sends events to `http://spotlight:8969/stream` inside compose.
+
 **Cloud:** set `SENTRY_DSN` to also send to sentry.io. Disable Spotlight: `SENTRY_SPOTLIGHT=false`.
 
 ---
@@ -369,6 +377,7 @@ Compose includes:
 | `app` | Compiled Bun binary | `${PORT}` (default 3131) |
 | `kafka` | Confluent Kafka (KRaft) | `9094` (host) |
 | `jaeger` | Trace collector + UI | `16686`, `4318` |
+| `spotlight` | Sentry Spotlight UI | `8969` |
 
 Health check hits `GET /healthz`. App waits for Kafka on startup.
 
