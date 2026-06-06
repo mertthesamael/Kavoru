@@ -332,7 +332,7 @@ Create an API key at [resend.com/api-keys](https://resend.com/api-keys). Use a [
 - Request tracing uses Sentry spans (lifecycle phases: Request, Parse, Handle, etc.) — separate from OTLP traces.
 - `flushSentry()` on shutdown (`SIGINT` / `SIGTERM`) so events are not lost.
 - Local viewing: `bun run sentry:spotlight` (terminal 1) + `bun run dev` (terminal 2). UI at http://localhost:8969.
-- OTEL and Sentry can run together: OTEL → otel-dev/Jaeger; Sentry → Spotlight and/or sentry.io.
+- OTEL and Sentry can run together: OTEL → otel-dev; Sentry → Spotlight and/or sentry.io.
 
 ### OpenTelemetry
 
@@ -346,7 +346,7 @@ Create an API key at [resend.com/api-keys](https://resend.com/api-keys). Use a [
 - Local viewing: `bun run otel:view` (terminal 1) + `bun run dev` (terminal 2). Traces appear under `OTEL_SERVICE_NAME` within ~1s in dev.
 - otel-dev shows the **service name** (`kavoru`) on every trace — that is normal. Span title uses the route (e.g. `GET /healthz/`).
 - Visiting `/help` also traces `GET /help/json` (OpenAPI spec fetch). URL hash fragments (e.g. `#tag/authentication`) are client-only and never appear in spans.
-- Docker alternative: Jaeger in `docker-compose.yaml` (UI at http://localhost:16686). Use `http://jaeger:4318/v1/traces` when the app runs inside compose.
+- Docker alternative: otel-dev in `docker-compose.yaml` (UI at http://localhost:4318). Use `http://otel:4318/v1/traces` when the app runs inside compose.
 
 Do **not** use `@opentelemetry/exporter-trace-otlp-http` directly — use `BunOtlpTraceExporter`. Do **not** add lifecycle plugins to patch span names/status; fix export shaping in `bun-otlp-exporter.ts` instead.
 

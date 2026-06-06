@@ -25,7 +25,7 @@ services:
     environment:
       NODE_ENV: production
       KAFKA_BROKERS: kafka:9092
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318/v1/traces
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel:4318/v1/traces
       OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-kavoru}
       SENTRY_SPOTLIGHT: http://spotlight:8969/stream
     healthcheck:
@@ -58,13 +58,12 @@ services:
       - app_network
     restart: unless-stopped
 
-  jaeger:
-    image: jaegertracing/all-in-one:1.62.0
+  otel:
+    build:
+      context: .
+      dockerfile: docker/otel.Dockerfile
     ports:
-      - "16686:16686"
       - "4318:4318"
-    environment:
-      COLLECTOR_OTLP_ENABLED: "true"
     networks:
       - app_network
     restart: unless-stopped

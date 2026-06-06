@@ -292,13 +292,13 @@ bun run dev
 
 Open [http://localhost:4318](http://localhost:4318), hit any route, and traces appear under `kavoru`.
 
-**Docker (Jaeger):**
+**Docker (otel-dev):**
 
 ```bash
-docker compose up -d jaeger
+docker compose up -d otel
 ```
 
-Jaeger UI: [http://localhost:16686](http://localhost:16686). Inside compose, set `OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4318/v1/traces`.
+Trace UI: [http://localhost:4318](http://localhost:4318) — same as `bun run otel:view`. Inside compose, the app uses `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel:4318/v1/traces`.
 
 Disable locally: `OTEL_EXPORTER_OTLP_ENDPOINT=`
 
@@ -376,7 +376,7 @@ Compose includes:
 | --- | --- | --- |
 | `app` | Compiled Bun binary | `${PORT}` (default 3131) |
 | `kafka` | Confluent Kafka (KRaft) | `9094` (host) |
-| `jaeger` | Trace collector + UI | `16686`, `4318` |
+| `otel` | otel-dev trace viewer (`bun run otel:view`) | `4318` |
 | `spotlight` | Sentry Spotlight UI | `8969` |
 
 Health check hits `GET /healthz`. App waits for Kafka on startup.
