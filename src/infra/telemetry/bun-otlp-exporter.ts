@@ -1,6 +1,6 @@
 import { ExportResultCode, type ExportResult } from "@opentelemetry/core";
 import { JsonTraceSerializer } from "@opentelemetry/otlp-transformer";
-import { SpanStatusCode } from "@opentelemetry/api";
+import { SpanKind, SpanStatusCode } from "@opentelemetry/api";
 import type { ReadableSpan, SpanExporter } from "@opentelemetry/sdk-trace-base";
 
 const GENERIC_SPAN_NAMES = new Set([
@@ -25,25 +25,51 @@ function isOrphanSpan(span: ReadableSpan): boolean {
   return span.parentSpanContext === undefined;
 }
 
+function isServerRoot(span: ReadableSpan): boolean {
+  return (
+    !span.parentSpanContext &&
+    (span.kind === SpanKind.SERVER || span.name === "Root")
+  );
+}
+
 function resolveTraceRouteLabels(
   spans: readonly ReadableSpan[],
+  cached: ReadonlyMap<string, string>,
 ): Map<string, string> {
-  const byTrace = new Map<string, ReadableSpan[]>();
+  const labels = new Map<string, string>(cached);
 
   for (const span of spans) {
     const traceId = span.spanContext().traceId;
-    const group = byTrace.get(traceId);
-    if (group) group.push(span);
-    else byTrace.set(traceId, [span]);
-  }
-
-  const labels = new Map<string, string>();
-  for (const [traceId, traceSpans] of byTrace) {
-    const label = traceSpans.map(httpRouteLabel).find(Boolean);
+    if (labels.has(traceId)) continue;
+    const label = httpRouteLabel(span);
     if (label) labels.set(traceId, label);
   }
 
   return labels;
+}
+
+function pickTraceRouteLabel(
+  spans: readonly ReadableSpan[],
+  traceId: string,
+  cached?: string,
+): string | undefined {
+  if (cached) return cached;
+
+  const serverRoot = spans.find(
+    (span) =>
+      span.spanContext().traceId === traceId &&
+      isServerRoot(span) &&
+      httpRouteLabel(span),
+  );
+  if (serverRoot) return httpRouteLabel(serverRoot);
+
+  for (const span of spans) {
+    if (span.spanContext().traceId !== traceId) continue;
+    const label = httpRouteLabel(span);
+    if (label) return label;
+  }
+
+  return undefined;
 }
 
 function resolveDisplayName(
@@ -53,18 +79,21 @@ function resolveDisplayName(
   const ownLabel = httpRouteLabel(span);
   const genericName = GENERIC_SPAN_NAMES.has(span.name);
 
-  if (typeof span.attributes["url.path"] === "string") {
-    if (span.name.endsWith("/*") || span.name === "Request") {
-      return ownLabel ?? traceRouteLabel;
-    }
-    if (genericName) return ownLabel ?? traceRouteLabel;
+  if (ownLabel && (genericName || span.name.endsWith("/*"))) {
+    return ownLabel;
   }
 
-  if (
-    isOrphanSpan(span) &&
-    traceRouteLabel &&
-    (genericName || span.name === "Handle")
-  ) {
+  if (!traceRouteLabel) return undefined;
+
+  if (span.name.endsWith("/*") || span.name === "Request") {
+    return traceRouteLabel;
+  }
+
+  if (isOrphanSpan(span) && genericName) {
+    return traceRouteLabel;
+  }
+
+  if (isServerRoot(span) && (genericName || span.name === "Root")) {
     return traceRouteLabel;
   }
 
@@ -96,7 +125,13 @@ function withExportedShape(
 }
 
 export class BunOtlpTraceExporter implements SpanExporter {
+  private readonly routeByTraceId = new Map<string, string>();
+
   constructor(private readonly url: string) {}
+
+  rememberRoute(traceId: string, label: string) {
+    this.routeByTraceId.set(traceId, label);
+  }
 
   export(
     spans: ReadableSpan[],
@@ -107,14 +142,27 @@ export class BunOtlpTraceExporter implements SpanExporter {
       return;
     }
 
-    const traceRouteLabels = resolveTraceRouteLabels(spans);
+    for (const span of spans) {
+      const traceId = span.spanContext().traceId;
+      const label = httpRouteLabel(span);
+      if (label) this.routeByTraceId.set(traceId, label);
+    }
+
+    const traceRouteLabels = resolveTraceRouteLabels(
+      spans,
+      this.routeByTraceId,
+    );
+
     const payload = JsonTraceSerializer.serializeRequest(
-      spans.map((span) =>
-        withExportedShape(
-          span,
-          traceRouteLabels.get(span.spanContext().traceId),
-        ),
-      ),
+      spans.map((span) => {
+        const traceId = span.spanContext().traceId;
+        const label = pickTraceRouteLabel(
+          spans,
+          traceId,
+          traceRouteLabels.get(traceId),
+        );
+        return withExportedShape(span, label);
+      }),
     );
     if (!payload) {
       resultCallback({ code: ExportResultCode.SUCCESS });
@@ -150,6 +198,7 @@ export class BunOtlpTraceExporter implements SpanExporter {
   }
 
   shutdown() {
+    this.routeByTraceId.clear();
     return Promise.resolve();
   }
 }
@@ -158,5 +207,7 @@ export const __testing = {
   httpRouteLabel,
   resolveDisplayName,
   resolveTraceRouteLabels,
+  pickTraceRouteLabel,
   isOrphanSpan,
+  isServerRoot,
 };

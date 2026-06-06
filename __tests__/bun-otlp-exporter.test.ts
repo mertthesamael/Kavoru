@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { SpanKind } from "@opentelemetry/api";
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-base";
 import { __testing } from "../src/infra/telemetry/bun-otlp-exporter";
 
@@ -45,6 +46,23 @@ describe("bun-otlp-exporter", () => {
     const display = __testing.resolveDisplayName(orphan, labels.get("trace-1"));
 
     expect(display).toBe("GET /help");
+  });
+
+  it("renames the server root span using the trace route label", () => {
+    const root = mockSpan({
+      name: "Root",
+      kind: SpanKind.SERVER,
+      attributes: {
+        "http.request.method": "GET",
+        "url.path": "/healthz/",
+        "http.route": "/healthz/",
+      },
+      parentSpanContext: undefined,
+    });
+
+    expect(
+      __testing.resolveDisplayName(root, __testing.pickTraceRouteLabel([root], "trace-1")),
+    ).toBe("GET /healthz/");
   });
 
   it("renames Request spans to method and path", () => {
