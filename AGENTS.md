@@ -7,7 +7,7 @@ Instructions for AI coding agents working in this repository.
 Production-ready **ElysiaJS** backend template using **Bun**, **TypeScript**, **Prisma**, and **Docker**.
 
 - Entry point: `src/index.ts` → `HttpServer` in `src/server/index.ts`
-- Module registration: `src/modules/index.ts` (auto-discovers `src/modules/*/routes.ts`)
+- Module registration: `src/modules/index.ts` + `src/modules/routes.registry.ts` (auto-generated from `src/modules/*/routes.ts`)
 - Scheduled jobs: `src/schedules/index.ts` (`@elysiajs/cron`, mounted in `HttpServer`)
 - API docs: OpenAPI UI at `/help`
 - Default port: `3131`
@@ -50,11 +50,16 @@ bun run build:docker
 
 # Prisma
 bunx prisma generate
-bunx --bun prisma migrate dev --name <name>
-bunx prisma db pull
+bunx --bun prisma db push          # sync schema to local Postgres (dev)
+bunx --bun prisma migrate dev --name <name>  # optional: versioned migrations
+
+# Project CLI (generate modules, etc.)
+bun run kavoru --help
+bun run kavoru module <name>       # e.g. bun run kavoru module billing
+bun run module <name>              # shorthand
 
 # Docker
-docker compose build
+docker compose up --build          # Postgres + stack; app runs prisma db push on start
 docker compose up -d
 
 # OpenTelemetry (local trace viewer, no Docker required)
@@ -68,7 +73,7 @@ bun run sentry:spotlight   # UI at http://localhost:8969
 bun test
 ```
 
-Copy `.env.example` to `.env` before running. Required env vars are validated in `src/config/env.ts`.
+Copy `.env.example` to `.env` before host dev (`bun run dev`). Docker Compose can start without a root `.env` (optional via `required: false`); `docker/app/.env` supplies in-stack overrides including `DATABASE_URL`.
 
 In development, OTEL is enabled by default (`http://localhost:4318/v1/traces`) unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set to empty. Sentry Spotlight is enabled by default unless `SENTRY_SPOTLIGHT=false`.
 
@@ -81,7 +86,11 @@ docker-compose.yaml          # stack entry point (project root)
 docker/
 ├── app/
 │   ├── Dockerfile           # app image — build context is project root
+│   ├── docker-entrypoint.sh # runs prisma db push, then starts ./server
 │   └── .env                 # Docker-only overrides (loaded after root .env)
+├── postgres/
+│   ├── Dockerfile           # pins postgres:16-alpine
+│   └── .env                 # POSTGRES_USER/PASSWORD/DB
 ├── kafka/
 │   ├── Dockerfile           # pins confluentinc/cp-kafka:7.6.1
 │   └── .env                 # KRaft broker config
@@ -93,18 +102,20 @@ docker/
     └── .env
 ```
 
-**Env layering for `app`:** root `.env` (secrets, copy from `.env.example`) → `docker/app/.env` (non-secret overrides such as `KAFKA_BROKERS=kafka:9092`, `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel:4318/v1/traces`, `SENTRY_SPOTLIGHT=http://spotlight:8969/stream`). Files under `docker/kafka/`, `docker/otel/`, and `docker/spotlight/` are infra config — safe to commit.
+**Env layering for `app`:** root `.env` (optional, copy from `.env.example`) → `docker/app/.env` (non-secret overrides such as `DATABASE_URL=postgresql://…@postgres:5432/…`, `KAFKA_BROKERS=kafka:9092`, `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel:4318/v1/traces`, `SENTRY_SPOTLIGHT=http://spotlight:8969/stream`). Files under `docker/postgres/`, `docker/kafka/`, `docker/otel/`, and `docker/spotlight/` are infra config — safe to commit.
 
 | Service | Host port | In-compose URL (from `app`) |
 | --- | --- | --- |
 | `app` | `3131` (or `PORT`) | — |
+| `postgres` | `5432` (or `POSTGRES_PORT`) | `postgres:5432` |
 | `kafka` | `9094` (EXTERNAL) | `kafka:9092` |
 | `otel` | `4318` | `http://otel:4318/v1/traces` |
 | `spotlight` | `8969` | `http://spotlight:8969/stream` |
 
-- App build: `docker/app/Dockerfile` with `context: .` (needs `package.json`, `src/`, etc.).
-- Kafka, otel, and spotlight build from their own folder (`context: docker/<service>`).
-- For host-only dev, run sidecars locally (`bun run otel:view`, `bun run sentry:spotlight`) instead of the compose services.
+- App build: `docker/app/Dockerfile` with `context: .` (needs `package.json`, `src/`, `prisma.config.ts`, etc.). Build runs `prisma generate`; **startup** (entrypoint) runs `prisma db push` once Postgres is healthy.
+- `app` `depends_on` includes `postgres` (healthcheck) and `kafka` (started).
+- Kafka, otel, postgres, and spotlight build from their own folder (`context: docker/<service>`).
+- For host-only dev, run Postgres via compose (`docker compose up -d postgres`) or the full stack; run sidecars locally (`bun run otel:view`, `bun run sentry:spotlight`) instead of compose otel/spotlight when preferred.
 
 ## Architecture
 
@@ -116,10 +127,12 @@ src/
 ├── server/index.ts       # HttpServer wrapper around Elysia
 ├── config/               # Env loading + app config
 ├── modules/              # Feature modules (auto-loaded)
-│   ├── index.ts          # Global plugins + route discovery
+│   ├── index.ts          # Global plugins + route registry mount
+│   ├── routes.registry.ts # Auto-generated — do not edit by hand
 │   ├── health/
 │   │   ├── routes.ts     # Elysia controller
-│   │   └── service.ts    # Business logic
+│   │   ├── service.ts    # Business logic
+│   │   └── types.ts      # Feature types (namespace or exports)
 │   ├── signin/
 │   ├── protected/
 │   ├── kafka/
@@ -144,9 +157,10 @@ src/
 
 1. `HttpServer` creates a root Elysia app and calls `registerModules`.
 2. `registerModules` applies global plugins in order: **Sentry**, **OpenTelemetry**, then OpenAPI, CORS, response envelope.
-3. Every `src/modules/*/routes.ts` export that is an `Elysia` instance is mounted automatically.
-4. A catch-all `app.all("/*")` at the end returns **404** for unknown paths (also enables full OTEL traces for not-found requests).
-5. `responseMiddleware` wraps handler return values in a standard envelope unless the value is already an envelope or a raw `Response`.
+3. Every module listed in `src/modules/routes.registry.ts` is mounted automatically (regenerated by `bun run routes:registry` or `kavoru module`).
+4. In dev, a file watcher on `src/modules/` detects new `routes.ts` files and regenerates the registry, then triggers a reload.
+5. A catch-all `app.all("/*")` at the end returns **404** for unknown paths (also enables full OTEL traces for not-found requests).
+6. `responseMiddleware` wraps handler return values in a standard envelope unless the value is already an envelope or a raw `Response`.
 
 Register new global plugins **after** `withSentry` / `withOpenTelemetry` so they are included in trace spans (root span name, route attributes, lifecycle children). Do not register routes before observability plugins — unmatched routes used to produce broken traces.
 
@@ -156,6 +170,7 @@ Register new global plugins **after** `withSentry` / `withOpenTelemetry` so they
 | --- | --- | --- |
 | Controller | `modules/<feature>/routes.ts` | HTTP routing, validation hooks, thin handlers |
 | Service | `modules/<feature>/service.ts` or `infra/` | Business logic, decoupled from Elysia `Context` |
+| Types | `modules/<feature>/types.ts` | Feature-specific types (often `export namespace Feature {}`) |
 | Model | `models/schemas/` | Single source of truth for types + runtime validation |
 | Middleware | `middleware/` | Cross-cutting Elysia plugins (auth, response) |
 | Telemetry | `infra/telemetry/` | OpenTelemetry SDK + Bun-compatible OTLP export |
@@ -321,6 +336,7 @@ Use `format: "uri"` (not `"url"`) for endpoint-style values that include paths (
 
 | Variable | Default (dev) | Description |
 | --- | --- | --- |
+| `DATABASE_URL` | _(unset)_ | PostgreSQL connection string; required for Prisma when using the database |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4318/v1/traces` | OTLP/HTTP traces endpoint; set empty to disable |
 | `OTEL_SERVICE_NAME` | `kavoru` | Service name in trace UI |
 | `SENTRY_DSN` | _(unset)_ | Sentry project DSN; optional when using Spotlight locally |
@@ -483,25 +499,68 @@ describe("My Feature", () => {
 
 ## Adding a new module
 
+**Preferred — project CLI:**
+
+```bash
+bun run kavoru module <feature>     # creates routes.ts, service.ts, types.ts
+bun run kavoru module billing --force
+```
+
+This scaffolds `src/modules/<feature>/` matching the `test` module pattern, then regenerates `routes.registry.ts`.
+
+**Manual steps (when not using the CLI):**
+
 1. Create `src/modules/<feature>/routes.ts` exporting an `Elysia` instance.
 2. Add `service.ts` for business logic when handlers grow beyond trivial logic.
-3. Add schemas under `src/models/schemas/<feature>.ts`.
-4. Restart dev server — new `routes.ts` files are picked up automatically in development.
+3. Add `types.ts` for feature-specific types when needed.
+4. Run `bun run routes:registry` (or save a new `routes.ts` in dev — watcher regenerates).
+5. Add request/response schemas under `src/models/schemas/<feature>.ts` when validating HTTP input/output.
 
 Reference implementations:
 
+- Scaffold template: `src/modules/test/` (minimal GET `/test/`)
 - Simple module: `src/modules/health/`
 - Auth + service: `src/modules/signin/`
 - Protected routes: `src/modules/protected/`
 - Kafka produce/consume: `src/modules/kafka/`, `src/infra/kafka/`
 - WebSocket: `src/modules/realtime/`
 
+### Project CLI (`kavoru`)
+
+Local CLI for day-to-day work inside a Kavoru app (not the npm scaffold CLI):
+
+| Entry | Example |
+| --- | --- |
+| `bun run kavoru` | `bun run scripts/kavoru-cli.ts` |
+| `bin/kavoru.js` | `./node_modules/.bin/kavoru` after `bun install` |
+
+| Command | Description |
+| --- | --- |
+| `kavoru module <name>` | Generate module scaffold + update `routes.registry.ts` |
+| `kavoru --help` | List commands |
+| `kavoru --version` | Package version |
+
+Implementation: `scripts/kavoru-cli.ts` (commands), `scripts/generate-module.ts` (scaffold logic), `scripts/generate-route-registry.ts` (registry).
+
 ## Prisma
 
-- Config: `prisma.config.ts`
-- Schema / migrations / client: `src/infra/prisma/` (gitignored until initialized)
-- Initialize fresh: `bunx --bun prisma init --db --output ./src/infra/prisma`
-- Set `DATABASE_URL` in `.env` before migrations or `db pull`
+- Config: `prisma.config.ts` — reads `process.env.DATABASE_URL` (do **not** import `src/config` here; Prisma CLI runs in Node and `Bun.env` is unavailable).
+- Schema: `src/infra/prisma/schemas/`
+- Client wrapper: `src/infra/prisma/client/index.ts` → `src/infra/prisma/generated/prisma/`
+- Seed: `src/infra/prisma/seed/index.ts`
+- Only `src/infra/prisma/generated/` is gitignored; schema and client wrapper are committed.
+
+**Host dev (schema-first):**
+
+1. Start Postgres: `docker compose up -d postgres` (or full stack).
+2. Copy `.env.example` → `.env` (`DATABASE_URL=postgresql://…@localhost:5432/…`).
+3. Edit `src/infra/prisma/schemas/schema.prisma`.
+4. Sync: `bunx --bun prisma db push` (or rely on Docker entrypoint on `docker compose up`).
+5. Regenerate client: `bunx prisma generate` (also run by `bun run dev` / Docker build).
+
+**Docker:** build runs `prisma generate`; `docker/app/docker-entrypoint.sh` runs `prisma db push` on container start (Postgres must be healthy — compose `depends_on` handles this). Do **not** run `prisma db pull` or `migrate dev` in the Dockerfile.
+
+**Optional:** use `bunx --bun prisma migrate dev --name <name>` when you want versioned migration files under `src/infra/prisma/migrations/` (production deploy: `prisma migrate deploy`).
 
 ## Memory and lifecycle
 
@@ -541,7 +600,8 @@ After making changes:
 4. Check OpenAPI at `/help` when adding or changing routes.
 5. For telemetry changes: run `bun run otel:view`, hit a route, confirm trace name/status in the UI (4xx should show **ERROR**, not OK).
 6. For error responses: confirm `success: false` and an `error` object when status is 400 or above.
-7. For Prisma changes: run `bunx prisma generate` and verify migrations apply.
+7. For Prisma changes: edit schema → `bunx prisma generate` → `bunx --bun prisma db push` (or restart Docker app for automatic push).
+8. For new modules: `bun run kavoru module <name>` and confirm route appears at `/help`.
 
 ## Current endpoints (reference)
 
@@ -563,5 +623,5 @@ After making changes:
 - [Elysia best practices](https://elysiajs.com/essential/best-practice.html)
 - [Elysia WebSocket](https://elysiajs.com/patterns/websocket.html)
 - Human-oriented setup docs: `README.md`
-- Canonical patterns: `src/modules/signin/`, `src/modules/realtime/`, `src/middleware/response.ts`, `src/config/env.ts`, `src/infra/kafka/`, `src/infra/resend/`, `src/infra/telemetry/`, `src/infra/sentry/`, `src/schedules/index.ts`, `__tests__/controller.test.ts`
+- Canonical patterns: `src/modules/test/`, `src/modules/signin/`, `src/modules/realtime/`, `scripts/kavoru-cli.ts`, `scripts/generate-module.ts`, `src/middleware/response.ts`, `src/config/env.ts`, `src/infra/kafka/`, `src/infra/resend/`, `src/infra/telemetry/`, `src/infra/sentry/`, `src/schedules/index.ts`, `__tests__/controller.test.ts`
 - Cron plugin: [@elysiajs/cron](https://elysiajs.com/plugins/cron.html)

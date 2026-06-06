@@ -1,13 +1,18 @@
 {
   "name": "kavoru",
   "version": "1.0.0",
+  "bin": {
+    "kavoru": "./bin/kavoru.js"
+  },
   "scripts": {
     "test": "bun test",
     "build": "bun build --compile --env=disable --minify-whitespace --minify-syntax --target bun --outfile server ./src/index.ts",
     "start": "bunx prisma generate && bun run src/index.ts",
     "start:prod": "./server",
     "dev": "bunx prisma generate && bun run --watch src/index.ts",
+    "kavoru": "bun run scripts/kavoru-cli.ts",
     "routes:registry": "bun run scripts/generate-route-registry.ts",
+    "module": "bun run scripts/kavoru-cli.ts module",
     "build:docker": "bun run routes:registry && bun build --compile --env=disable --minify-whitespace --minify-syntax --target=bun-linux-x64 --outfile server ./src/index.ts",
     "seed": "bun run src/infra/prisma/seed/index.ts",
     "otel:view": "bunx otel-dev --web",
