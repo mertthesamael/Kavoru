@@ -26,7 +26,7 @@ Production-ready **ElysiaJS** backend template using **Bun**, **TypeScript**, **
 | Messaging | Kafka via `kafkajs` (`src/infra/kafka/`) |
 | Email | Resend via `resend` (`src/infra/resend/`) |
 | Real-time | WebSocket via Elysia `.ws()` (Bun/uWebSockets) |
-| Container | Docker (`Dockerfile`, `docker-compose.yaml`) |
+| Container | Docker (`docker-compose.yaml`, `docker/<service>/`) |
 
 Follow [Elysia best practices](https://elysiajs.com/essential/best-practice.html) when adding or refactoring features.
 
@@ -71,6 +71,40 @@ bun test
 Copy `.env.example` to `.env` before running. Required env vars are validated in `src/config/env.ts`.
 
 In development, OTEL is enabled by default (`http://localhost:4318/v1/traces`) unless `OTEL_EXPORTER_OTLP_ENDPOINT` is set to empty. Sentry Spotlight is enabled by default unless `SENTRY_SPOTLIGHT=false`.
+
+## Docker
+
+Orchestration lives at the project root; each service has its own folder under `docker/`:
+
+```
+docker-compose.yaml          # stack entry point (project root)
+docker/
+├── app/
+│   ├── Dockerfile           # app image — build context is project root
+│   └── .env                 # Docker-only overrides (loaded after root .env)
+├── kafka/
+│   ├── Dockerfile           # pins confluentinc/cp-kafka:7.6.1
+│   └── .env                 # KRaft broker config
+├── otel/
+│   ├── Dockerfile           # Bun + otel-dev sidecar
+│   └── .env
+└── spotlight/
+    ├── Dockerfile           # pins ghcr.io/getsentry/spotlight:latest
+    └── .env
+```
+
+**Env layering for `app`:** root `.env` (secrets, copy from `.env.example`) → `docker/app/.env` (non-secret overrides such as `KAFKA_BROKERS=kafka:9092`, `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel:4318/v1/traces`, `SENTRY_SPOTLIGHT=http://spotlight:8969/stream`). Files under `docker/kafka/`, `docker/otel/`, and `docker/spotlight/` are infra config — safe to commit.
+
+| Service | Host port | In-compose URL (from `app`) |
+| --- | --- | --- |
+| `app` | `3131` (or `PORT`) | — |
+| `kafka` | `9094` (EXTERNAL) | `kafka:9092` |
+| `otel` | `4318` | `http://otel:4318/v1/traces` |
+| `spotlight` | `8969` | `http://spotlight:8969/stream` |
+
+- App build: `docker/app/Dockerfile` with `context: .` (needs `package.json`, `src/`, etc.).
+- Kafka, otel, and spotlight build from their own folder (`context: docker/<service>`).
+- For host-only dev, run sidecars locally (`bun run otel:view`, `bun run sentry:spotlight`) instead of the compose services.
 
 ## Architecture
 
@@ -332,6 +366,7 @@ Create an API key at [resend.com/api-keys](https://resend.com/api-keys). Use a [
 - Request tracing uses Sentry spans (lifecycle phases: Request, Parse, Handle, etc.) — separate from OTLP traces.
 - `flushSentry()` on shutdown (`SIGINT` / `SIGTERM`) so events are not lost.
 - Local viewing: `bun run sentry:spotlight` (terminal 1) + `bun run dev` (terminal 2). UI at http://localhost:8969.
+- Docker alternative: `docker compose up -d spotlight` (`docker/spotlight/`). UI at http://localhost:8969; app in compose uses `SENTRY_SPOTLIGHT=http://spotlight:8969/stream` from `docker/app/.env`.
 - OTEL and Sentry can run together: OTEL → otel-dev; Sentry → Spotlight and/or sentry.io.
 
 ### OpenTelemetry
@@ -346,7 +381,7 @@ Create an API key at [resend.com/api-keys](https://resend.com/api-keys). Use a [
 - Local viewing: `bun run otel:view` (terminal 1) + `bun run dev` (terminal 2). Traces appear under `OTEL_SERVICE_NAME` within ~1s in dev.
 - otel-dev shows the **service name** (`kavoru`) on every trace — that is normal. Span title uses the route (e.g. `GET /healthz/`).
 - Visiting `/help` also traces `GET /help/json` (OpenAPI spec fetch). URL hash fragments (e.g. `#tag/authentication`) are client-only and never appear in spans.
-- Docker alternative: otel-dev in `docker-compose.yaml` (UI at http://localhost:4318). Use `http://otel:4318/v1/traces` when the app runs inside compose.
+- Docker alternative: `docker compose up -d otel` (`docker/otel/`). UI at http://localhost:4318; app in compose uses `http://otel:4318/v1/traces` from `docker/app/.env`.
 
 Do **not** use `@opentelemetry/exporter-trace-otlp-http` directly — use `BunOtlpTraceExporter`. Do **not** add lifecycle plugins to patch span names/status; fix export shaping in `bun-otlp-exporter.ts` instead.
 

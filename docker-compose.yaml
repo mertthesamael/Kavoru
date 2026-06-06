@@ -2,6 +2,7 @@ services:
   app:
     build:
       context: .
+      dockerfile: docker/app/Dockerfile
       target: build
       args:
         PORT: ${PORT:-3131}
@@ -19,15 +20,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+      - docker/app/.env
     depends_on:
       kafka:
         condition: service_started
-    environment:
-      NODE_ENV: production
-      KAFKA_BROKERS: kafka:9092
-      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel:4318/v1/traces
-      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-kavoru}
-      SENTRY_SPOTLIGHT: http://spotlight:8969/stream
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${PORT}/healthz"]
       interval: 600s
@@ -36,42 +32,35 @@ services:
       start_period: 40s
 
   kafka:
-    image: confluentinc/cp-kafka:7.6.1
+    build:
+      context: docker/kafka
     hostname: kafka
     ports:
       - "9094:9094"
-    environment:
-      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
-      KAFKA_NODE_ID: "0"
-      KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 0@kafka:9093
-      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+    env_file:
+      - docker/kafka/.env
     networks:
       - app_network
     restart: unless-stopped
 
   otel:
     build:
-      context: .
-      dockerfile: docker/otel.Dockerfile
+      context: docker/otel
     ports:
       - "4318:4318"
+    env_file:
+      - docker/otel/.env
     networks:
       - app_network
     restart: unless-stopped
 
   spotlight:
-    image: ghcr.io/getsentry/spotlight:latest
+    build:
+      context: docker/spotlight
     ports:
       - "8969:8969"
+    env_file:
+      - docker/spotlight/.env
     networks:
       - app_network
     restart: unless-stopped
