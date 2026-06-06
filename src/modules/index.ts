@@ -7,29 +7,49 @@ import cors from "@elysiajs/cors";
 import openapi from "@elysiajs/openapi";
 import { withSentry } from "../infra/sentry";
 import { withOpenTelemetry } from "../infra/telemetry";
-
-const modulesDir = import.meta.dir;
-const routeGlob = new Bun.Glob("*/routes.ts");
-
-const knownRouteFiles = new Set<string>();
-for (const file of routeGlob.scanSync(modulesDir)) {
-  knownRouteFiles.add(file.replaceAll("\\", "/"));
-}
+import { routeModules } from "./routes.registry";
 
 const isCompiledBinary = import.meta.path.includes("$bunfs");
+const enableDevWatcher =
+  config.env.env !== "production" && !isCompiledBinary;
 
-if (config.env.env !== "production" && !isCompiledBinary) {
+if (enableDevWatcher) {
+  const modulesDir = import.meta.dir;
+  const routeGlob = new Bun.Glob("*/routes.ts");
+  const knownRouteFiles = new Set<string>();
+  for (const file of routeGlob.scanSync(modulesDir)) {
+    knownRouteFiles.add(file.replaceAll("\\", "/"));
+  }
+
   const watcher = watch(modulesDir, { recursive: true }, (_event, filename) => {
     if (!filename?.endsWith("routes.ts")) return;
     const normalized = filename.replaceAll("\\", "/");
     if (knownRouteFiles.has(normalized)) return;
     knownRouteFiles.add(normalized);
     watcher.close();
+
+    Bun.spawnSync({
+      cmd: ["bun", "run", "routes:registry"],
+      cwd: path.join(modulesDir, "../.."),
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+
     const now = new Date();
     utimesSync(import.meta.path, now, now);
   });
 
   watcher.unref();
+}
+
+function useRouteModules(app: Elysia) {
+  for (const mod of routeModules) {
+    for (const exported of Object.values(mod)) {
+      if (exported instanceof Elysia) {
+        app.use(exported);
+      }
+    }
+  }
 }
 
 export function registerModules(app: Elysia) {
@@ -51,14 +71,7 @@ export function registerModules(app: Elysia) {
     .use(cors())
     .use(responseMiddleware);
 
-  for (const file of knownRouteFiles) {
-    const mod = require(path.join(modulesDir, file));
-    for (const exported of Object.values(mod)) {
-      if (exported instanceof Elysia) {
-        app.use(exported);
-      }
-    }
-  }
+  useRouteModules(app);
 
   app.all("/*", ({ set }) => {
     set.status = 404;

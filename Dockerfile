@@ -6,6 +6,7 @@
     RUN bun install
 
     COPY ./src ./src
+    COPY ./scripts ./scripts
     COPY prisma.config.ts ./
 
     ARG PORT
