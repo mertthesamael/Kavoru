@@ -40,6 +40,19 @@ cd my-api
 bun run dev
 ```
 
+Pick only what you need — interactive toggles in the terminal, or flags:
+
+```bash
+# Core skeleton (health + OpenAPI + response envelope)
+bunx kavoru my-api --minimal
+
+# Specific integrations
+bunx kavoru my-api --features auth,prisma,otel,sentry
+
+# Full stack minus Kafka and Docker
+bunx kavoru my-api --no-features kafka,docker
+```
+
 Or use **[Use this template](https://github.com/mertthesamael/Kavoru/generate)** on GitHub, or clone directly:
 
 ```bash
