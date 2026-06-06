@@ -54,8 +54,10 @@ bunx --bun prisma db push          # sync schema to local Postgres (dev)
 bunx --bun prisma migrate dev --name <name>  # optional: versioned migrations
 
 # Project CLI (cli feature)
-bun run link-cli                    # once: put kavoru on PATH (~/.bun/bin)
-kavoru module <name>                # bare command after link-cli
+bun run link-cli                    # optional: put project kavoru on PATH (~/.bun/bin)
+kavoru module <name>                # generate module (project CLI)
+kavoru <directory>                  # scaffold new project (forwards to bunx kavoru@latest)
+bunx kavoru@latest <directory>      # explicit scaffold (recommended in docs/scripts)
 .\kavoru.cmd module <name>          # Windows fallback from project root
 ./kavoru module <name>              # macOS/Linux fallback from project root
 

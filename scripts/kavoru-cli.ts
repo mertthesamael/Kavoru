@@ -9,12 +9,16 @@ const packageVersion = readFileSync(
 const version = (JSON.parse(packageVersion) as { version: string }).version;
 
 const HELP = `\
-Usage: kavoru <command> [options]
+Usage: kavoru <command|directory> [options]
 
-Project CLI for Kavoru apps.
+Project CLI for Kavoru apps. Scaffold commands delegate to bunx kavoru@latest.
 
 Commands:
   module <name>   Generate CRUD module + src/models/schemas/<name>.ts
+
+Scaffold:
+  kavoru <directory>              Create a new project
+  kavoru . --features auth,cli    Scaffold in current directory
 
 Options:
   -h, --help      Show help
@@ -22,7 +26,8 @@ Options:
 
 Examples:
   kavoru module users
-  kavoru module user-profile --force
+  kavoru my-api
+  bunx kavoru@latest my-api       # explicit scaffold (always works)
 `;
 
 function printHelp(): void {
@@ -65,6 +70,23 @@ Examples:
   console.log(`Created schema "src/models/schemas/${slug}.ts"`);
 }
 
+export function isProjectCommand(command: string): boolean {
+  return command === "module";
+}
+
+async function forwardToScaffoldCli(argv: string[]): Promise<void> {
+  const proc = Bun.spawn(["bunx", "kavoru@latest", ...argv], {
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) {
+    process.exit(exitCode ?? 1);
+  }
+}
+
 export async function runKavoruCli(argv = process.argv.slice(2)): Promise<void> {
   if (argv.length === 0 || argv.includes("-h") || argv.includes("--help")) {
     printHelp();
@@ -87,6 +109,10 @@ export async function runKavoruCli(argv = process.argv.slice(2)): Promise<void> 
       await runModuleCommand(rest);
       return;
     default:
+      if (!isProjectCommand(command)) {
+        await forwardToScaffoldCli(argv);
+        return;
+      }
       throw new Error(`Unknown command "${command}". Run "kavoru --help".`);
   }
 }
