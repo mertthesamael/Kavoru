@@ -7,16 +7,13 @@
 
     COPY ./src ./src
     COPY prisma.config.ts ./
-    COPY .env ./
 
     ARG PORT
-    ENV PORT=${PORT} 
+    ENV PORT=${PORT}
     EXPOSE ${PORT}
 
-
-    ENV DATABASE_URL=${DATABASE_URL}
-    RUN bunx prisma db pull
-    RUN bunx prisma generate
+    # generate only needs the schema on disk, not a live database
+    RUN if [ -f src/infra/prisma/schemas/schema.prisma ]; then bunx prisma generate; fi
     
     RUN bun run build:docker
     CMD ["./server"]

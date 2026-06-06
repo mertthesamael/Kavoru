@@ -367,7 +367,7 @@ Compose includes:
 | Service | Purpose | Ports |
 | --- | --- | --- |
 | `app` | Compiled Bun binary | `${PORT}` (default 3131) |
-| `kafka` | Bitnami Kafka (KRaft) | `9094` (host) |
+| `kafka` | Confluent Kafka (KRaft) | `9094` (host) |
 | `jaeger` | Trace collector + UI | `16686`, `4318` |
 
 Health check hits `GET /healthz`. App waits for Kafka on startup.
