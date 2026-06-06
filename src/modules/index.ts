@@ -73,7 +73,7 @@ export function registerModules(app: Elysia) {
 
   useRouteModules(app);
 
-  app.all("/*", ({ set }) => {
+  app.all("/*", function notFound({ set }) {
     set.status = 404;
     return { message: "Not Found" };
   });
