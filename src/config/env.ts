@@ -37,7 +37,7 @@ function buildEnvFromSchema(schema: {
 }) {
   return Object.fromEntries(
     Object.entries(schema.properties).map(([key, prop]) => {
-      const raw = process.env[key];
+      const raw = Bun.env[key];
       const value = raw === "" ? undefined : (raw ?? prop.default);
       return [key, value];
     }),

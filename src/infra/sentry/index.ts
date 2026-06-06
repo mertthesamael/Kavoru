@@ -98,11 +98,18 @@ export function initSentry() {
   const spotlight = config.env.server.sentrySpotlight;
   const dsn = config.env.server.sentryDsn ?? SPOTLIGHT_PLACEHOLDER_DSN;
 
+  const skipOpenTelemetrySetup = Boolean(
+    config.env.server.otelExporterOtlpEndpoint,
+  );
+
   Sentry.init({
     dsn,
     environment: config.env.env,
     release: config.version,
-    tracesSampleRate: config.env.server.sentryTracesSampleRate,
+    tracesSampleRate: skipOpenTelemetrySetup
+      ? 0
+      : config.env.server.sentryTracesSampleRate,
+    skipOpenTelemetrySetup,
     ...(spotlight ? { spotlight } : {}),
   });
 
