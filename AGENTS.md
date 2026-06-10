@@ -24,6 +24,7 @@ Production-ready **ElysiaJS** backend template using **Bun**, **TypeScript**, **
 | Observability | OpenTelemetry (`src/infra/telemetry/`) + Sentry (`src/infra/sentry/`) |
 | Scheduled tasks | `@elysiajs/cron` (`src/schedules/`) |
 | Messaging | Kafka via `kafkajs` (`src/infra/kafka/`) |
+| Cache | Redis via `ioredis` (`src/infra/redis/`) |
 | Email | Resend via `resend` (`src/infra/resend/`) |
 | Real-time | WebSocket via Elysia `.ws()` (Bun/uWebSockets) |
 | Container | Docker (`docker-compose.yaml`, `docker/<service>/`) |
@@ -95,6 +96,10 @@ docker/
 ├── kafka/
 │   ├── Dockerfile           # pins confluentinc/cp-kafka:7.6.1
 │   └── .env                 # KRaft broker config
+├── redis/
+│   ├── Dockerfile           # pins redis:7-alpine
+│   ├── docker-entrypoint.sh # ACL user from REDIS_USERNAME/PASSWORD
+│   └── .env                 # REDIS_USERNAME/PASSWORD for the container
 ├── otel/
 │   ├── Dockerfile           # Bun + otel-dev sidecar
 │   └── .env
@@ -103,19 +108,21 @@ docker/
     └── .env
 ```
 
-**Env layering for `app`:** root `.env` (optional, copy from `.env.example`) → `docker/app/.env` (non-secret overrides such as `DATABASE_URL=postgresql://…@postgres:5432/…`, `KAFKA_BROKERS=kafka:9092`, `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel:4318/v1/traces`, `SENTRY_SPOTLIGHT=http://spotlight:8969/stream`). Files under `docker/postgres/`, `docker/kafka/`, `docker/otel/`, and `docker/spotlight/` are infra config — safe to commit.
+**Env layering for `app`:** root `.env` (optional, copy from `.env.example`) → `docker/app/.env` (non-secret overrides such as `DATABASE_URL=postgresql://…@postgres:5432/…`, `KAFKA_BROKERS=kafka:9092`, `REDIS_URL=redis://redis:6379`, `REDIS_USERNAME` / `REDIS_PASSWORD`, `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel:4318/v1/traces`, `SENTRY_SPOTLIGHT=http://spotlight:8969/stream`). Files under `docker/postgres/`, `docker/kafka/`, `docker/redis/`, `docker/otel/`, and `docker/spotlight/` are infra config — safe to commit.
 
 | Service | Host port | In-compose URL (from `app`) |
 | --- | --- | --- |
 | `app` | `3131` (or `PORT`) | — |
 | `postgres` | `5432` (or `POSTGRES_PORT`) | `postgres:5432` |
 | `kafka` | `9094` (EXTERNAL) | `kafka:9092` |
+| `redis` | `6379` (or `REDIS_PORT`) | `redis:6379` |
 | `otel` | `4318` | `http://otel:4318/v1/traces` |
 | `spotlight` | `8969` | `http://spotlight:8969/stream` |
 
 - App build: `docker/app/Dockerfile` with `context: .` (needs `package.json`, `src/`, `prisma.config.ts`, etc.). Build runs `prisma generate`; **startup** (entrypoint) runs `prisma db push` once Postgres is healthy.
-- `app` `depends_on` includes `postgres` (healthcheck) and `kafka` (started).
-- Kafka, otel, postgres, and spotlight build from their own folder (`context: docker/<service>`).
+- When the `cli` feature is enabled, the app image copies `bin/` + `scripts/link-cli.ts` before `bun install` (postinstall links `kavoru` to `/root/.bun/bin`) and the entrypoint re-runs `link-cli` on start so `kavoru module <name>` works inside the container.
+- `app` `depends_on` includes `postgres` (healthcheck), `kafka` (started), and `redis` (healthcheck).
+- Kafka, Redis, otel, postgres, and spotlight build from their own folder (`context: docker/<service>`).
 - For host-only dev, run Postgres via compose (`docker compose up -d postgres`) or the full stack; run sidecars locally (`bun run otel:view`, `bun run sentry:spotlight`) instead of compose otel/spotlight when preferred.
 
 ## Architecture
@@ -137,6 +144,7 @@ src/
 │   ├── signin/
 │   ├── protected/
 │   ├── kafka/
+│   ├── redis/
 │   └── realtime/         # WebSocket example
 ├── middleware/           # Global / reusable Elysia plugins
 ├── models/
@@ -144,6 +152,7 @@ src/
 │   └── errors/           # AppError + HTTP error helpers
 ├── infra/                # External integrations (auth, prisma, telemetry, etc.)
 │   ├── kafka/            # Kafka producer/consumer lifecycle
+│   ├── redis/            # Redis client lifecycle
 │   ├── resend/           # Resend email client (lazy singleton)
 │   ├── telemetry/        # OpenTelemetry wiring + Bun OTLP exporter
 │   └── sentry/           # Sentry error monitoring + performance tracing
@@ -524,6 +533,7 @@ Reference implementations:
 - Auth + service: `src/modules/signin/`
 - Protected routes: `src/modules/protected/`
 - Kafka produce/consume: `src/modules/kafka/`, `src/infra/kafka/`
+- Redis CRUD: `src/modules/redis/`, `src/infra/redis/`
 - WebSocket: `src/modules/realtime/`
 
 ### Project CLI (`kavoru`)
@@ -539,15 +549,17 @@ Local CLI for day-to-day work inside a Kavoru app (not the npm scaffold CLI):
 | Command | Description |
 | --- | --- |
 | `kavoru module <name>` | Generate CRUD module scaffold + `src/models/schemas/<name>.ts` + update `routes.registry.ts` |
+| `kavoru repository <name>` | Generate `src/infra/prisma/schemas/<name>.prisma` + `repositories/<name>.ts` + run `prisma generate` (postgres only) |
 | `kavoru --help` | List commands |
 | `kavoru --version` | Package version |
 
-Implementation: `scripts/kavoru-cli.ts` (commands), `scripts/generate-module.ts` (scaffold logic), `scripts/link-cli.ts` (PATH shim), `scripts/generate-route-registry.ts` (registry).
+Implementation: `scripts/kavoru-cli.ts` (commands), `scripts/generate-module.ts` (module scaffold), `scripts/generate-repository.ts` (Prisma repository scaffold), `scripts/link-cli.ts` (PATH shim), `scripts/generate-route-registry.ts` (registry).
 
 ## Prisma
 
 - Config: `prisma.config.ts` — reads `process.env.DATABASE_URL` (do **not** import `src/config` here; Prisma CLI runs in Node and `Bun.env` is unavailable).
-- Schema: `src/infra/prisma/schemas/`
+- Schema: `src/infra/prisma/schemas/` (multi-file; add models with `kavoru repository <name>`)
+- Repositories: `src/infra/prisma/repositories/` (CRUD + transaction examples from `kavoru repository <name>`)
 - Client wrapper: `src/infra/prisma/client/index.ts` → `src/infra/prisma/generated/prisma/`
 - Seed: `src/infra/prisma/seed/index.ts`
 - Only `src/infra/prisma/generated/` is gitignored; schema and client wrapper are committed.
@@ -615,6 +627,12 @@ After making changes:
 | GET | `/protected` | protected | Requires Bearer token |
 | GET | `/kafka/status` | kafka | Kafka enabled flag + last consumed message |
 | POST | `/kafka/publish` | kafka | Publish example message |
+| GET | `/redis/status` | redis | Redis enabled flag + connection state |
+| GET | `/redis` | redis | List keys (`?pattern=&limit=`) |
+| GET | `/redis/:key` | redis | Get value by key |
+| POST | `/redis` | redis | Create/set key (`key`, `value`, optional `ttlSeconds`) |
+| PUT | `/redis/:key` | redis | Update value (optional `ttlSeconds`) |
+| DELETE | `/redis/:key` | redis | Delete key |
 | GET | `/realtime/stats` | realtime | Active WebSocket connection count |
 | WS | `/realtime/ws` | realtime | Validated echo WebSocket (`?room=` optional) |
 | GET | `/help` | — | OpenAPI UI (also traces `GET /help/json`) |
@@ -625,5 +643,5 @@ After making changes:
 - [Elysia best practices](https://elysiajs.com/essential/best-practice.html)
 - [Elysia WebSocket](https://elysiajs.com/patterns/websocket.html)
 - Human-oriented setup docs: `README.md`
-- Canonical patterns: `src/modules/test/`, `src/modules/signin/`, `src/modules/realtime/`, `scripts/kavoru-cli.ts`, `scripts/generate-module.ts`, `src/middleware/response.ts`, `src/config/env.ts`, `src/infra/kafka/`, `src/infra/resend/`, `src/infra/telemetry/`, `src/infra/sentry/`, `src/schedules/index.ts`, `__tests__/controller.test.ts`
+- Canonical patterns: `src/modules/test/`, `src/modules/signin/`, `src/modules/realtime/`, `scripts/kavoru-cli.ts`, `scripts/generate-module.ts`, `src/middleware/response.ts`, `src/config/env.ts`, `src/infra/kafka/`, `src/infra/redis/`, `src/infra/resend/`, `src/infra/telemetry/`, `src/infra/sentry/`, `src/schedules/index.ts`, `__tests__/controller.test.ts`
 - Cron plugin: [@elysiajs/cron](https://elysiajs.com/plugins/cron.html)

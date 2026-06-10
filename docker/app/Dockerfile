@@ -3,6 +3,8 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 COPY package.json bun.lock ./
+COPY bin ./bin
+COPY scripts/link-cli.ts ./scripts/link-cli.ts
 RUN bun install
 
 COPY ./src ./src
@@ -11,6 +13,7 @@ COPY prisma.config.ts ./
 
 ARG PORT
 ENV PORT=${PORT}
+ENV PATH="/root/.bun/bin:${PATH}"
 EXPOSE ${PORT}
 
 RUN bunx prisma generate

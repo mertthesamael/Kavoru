@@ -3,6 +3,7 @@ import * as route0 from "./health/routes";
 import * as route1 from "./kafka/routes";
 import * as route2 from "./protected/routes";
 import * as route3 from "./realtime/routes";
-import * as route4 from "./signin/routes";
+import * as route4 from "./redis/routes";
+import * as route5 from "./signin/routes";
 
-export const routeModules = [route0, route1, route2, route3, route4];
+export const routeModules = [route0, route1, route2, route3, route4, route5];

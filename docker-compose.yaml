@@ -27,6 +27,8 @@ services:
         condition: service_healthy
       kafka:
         condition: service_started
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${PORT:-3131}/healthz"]
       interval: 600s
@@ -63,6 +65,27 @@ services:
       - docker/kafka/.env
     networks:
       - app_network
+    restart: unless-stopped
+
+  redis:
+    build:
+      context: docker/redis
+    hostname: redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    env_file:
+      - docker/redis/.env
+    networks:
+      - app_network
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "redis-cli --user $$REDIS_USERNAME -a $$REDIS_PASSWORD ping | grep -q PONG",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
 
   otel:

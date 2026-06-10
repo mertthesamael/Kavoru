@@ -23,6 +23,10 @@ const envSchema = t.Object({
   KAFKA_CLIENT_ID: t.String({ default: "kavoru" }),
   KAFKA_GROUP_ID: t.String({ default: "kavoru-consumer" }),
   KAFKA_TOPIC: t.String({ default: "elysia.events" }),
+  REDIS_ENABLED: t.Optional(t.String()),
+  REDIS_URL: t.Optional(t.String()),
+  REDIS_USERNAME: t.Optional(t.String()),
+  REDIS_PASSWORD: t.Optional(t.String()),
   RESEND_API_KEY: t.Optional(t.String()),
   RESEND_FROM: t.Optional(t.String()),
   RESEND_ENABLED: t.Optional(t.String()),
@@ -52,6 +56,22 @@ function resolveKafkaEnabled(
   if (raw === "false" || raw === "0" || raw === "") return false;
   if (raw === "true" || raw === "1") return true;
   return nodeEnv === "development";
+}
+
+function resolveRedisEnabled(
+  raw: string | undefined,
+  nodeEnv: string,
+): boolean {
+  if (nodeEnv === "test") return false;
+  if (raw === "false" || raw === "0" || raw === "") return false;
+  if (raw === "true" || raw === "1") return true;
+  return nodeEnv === "development";
+}
+
+function resolveRedisUrl(raw: string | undefined, nodeEnv: string) {
+  if (raw) return raw;
+  if (nodeEnv === "development") return "redis://localhost:6379";
+  return undefined;
 }
 
 function resolveResendEnabled(
@@ -163,6 +183,8 @@ export function loadEnv() {
 
   const kafkaEnabled = resolveKafkaEnabled(env.KAFKA_ENABLED, env.NODE_ENV);
   const kafkaBrokers = parseKafkaBrokers(env.KAFKA_BROKERS, env.NODE_ENV);
+  const redisEnabled = resolveRedisEnabled(env.REDIS_ENABLED, env.NODE_ENV);
+  const redisUrl = resolveRedisUrl(env.REDIS_URL, env.NODE_ENV);
 
   const resendEnabled = resolveResendEnabled(
     env.RESEND_ENABLED,
@@ -192,6 +214,12 @@ export function loadEnv() {
       clientId: env.KAFKA_CLIENT_ID,
       groupId: env.KAFKA_GROUP_ID,
       topic: env.KAFKA_TOPIC,
+    },
+    redis: {
+      enabled: redisEnabled && Boolean(redisUrl),
+      url: redisUrl,
+      username: env.REDIS_USERNAME,
+      password: env.REDIS_PASSWORD,
     },
     resend: {
       enabled: resendEnabled,

@@ -21,6 +21,7 @@ describe("kavoru cli", () => {
 
   it("recognizes project-only commands", () => {
     expect(isProjectCommand("module")).toBe(true);
+    expect(isProjectCommand("repository")).toBe(true);
     expect(isProjectCommand("my-api")).toBe(false);
   });
 });

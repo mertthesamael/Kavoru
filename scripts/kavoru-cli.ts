@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { generateModule } from "./generate-module";
+import { generateRepository } from "./generate-repository";
 
 const packageVersion = readFileSync(
   path.join(import.meta.dir, "../package.json"),
@@ -14,7 +15,8 @@ Usage: kavoru <command|directory> [options]
 Project CLI for Kavoru apps. Scaffold commands delegate to bunx kavoru@latest.
 
 Commands:
-  module <name>   Generate CRUD module + src/models/schemas/<name>.ts
+  module <name>        Generate CRUD module + src/models/schemas/<name>.ts
+  repository <name>    Generate Prisma schema + repository (requires postgres)
 
 Scaffold:
   kavoru <directory>              Create a new project
@@ -26,6 +28,7 @@ Options:
 
 Examples:
   kavoru module users
+  kavoru repository user
   kavoru my-api
   bunx kavoru@latest my-api       # explicit scaffold (always works)
 `;
@@ -70,8 +73,42 @@ Examples:
   console.log(`Created schema "src/models/schemas/${slug}.ts"`);
 }
 
+async function runRepositoryCommand(argv: string[]): Promise<void> {
+  if (argv.includes("-h") || argv.includes("--help")) {
+    console.log(`\
+Usage: kavoru repository <repository-name> [options]
+
+Generate Prisma model + repository (requires postgres/prisma feature):
+  src/infra/prisma/schemas/<name>.prisma
+  src/infra/prisma/repositories/<name>.ts
+
+Runs bunx prisma generate when finished.
+
+Options:
+  -f, --force   Overwrite existing schema/repository files
+  -h, --help    Show help
+
+Examples:
+  kavoru repository user
+  kavoru repository billing --force
+`);
+    return;
+  }
+
+  const force = argv.includes("--force") || argv.includes("-f");
+  const name = argv.find((arg) => !arg.startsWith("-"));
+
+  if (!name) {
+    throw new Error("Usage: kavoru repository <repository-name> [--force]");
+  }
+
+  const slug = await generateRepository(name, { force });
+  console.log(`Created schema "src/infra/prisma/schemas/${slug}.prisma"`);
+  console.log(`Created repository "src/infra/prisma/repositories/${slug}.ts"`);
+}
+
 export function isProjectCommand(command: string): boolean {
-  return command === "module";
+  return command === "module" || command === "repository";
 }
 
 async function forwardToScaffoldCli(argv: string[]): Promise<void> {
@@ -107,6 +144,9 @@ export async function runKavoruCli(argv = process.argv.slice(2)): Promise<void> 
   switch (command) {
     case "module":
       await runModuleCommand(rest);
+      return;
+    case "repository":
+      await runRepositoryCommand(rest);
       return;
     default:
       if (!isProjectCommand(command)) {

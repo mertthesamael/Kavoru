@@ -63,11 +63,12 @@ if (import.meta.main) {
     process.exit(0);
   }
 
-  const linked = linkProjectCli();
-  console.log(
-    `Linked ${linked} -> ${path.resolve(import.meta.dir, "../bin/kavoru.js")}`,
-  );
-  if (process.platform === "win32") {
-    console.log(`Linked ${path.join(resolveBunBinDir(), "kavoru.cmd")}`);
+  const projectRoot = path.join(import.meta.dir, "..");
+  const binScript = path.resolve(projectRoot, "bin/kavoru.js");
+  if (!existsSync(binScript)) {
+    process.exit(0);
   }
+
+  const linked = linkProjectCli(projectRoot);
+  console.log(`Linked ${linked} -> ${binScript}`);
 }
