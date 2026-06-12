@@ -1,7 +1,7 @@
 import Elysia from "elysia";
 import { isElysiaStatusResponse } from "../models/errors/http-error";
-import { httpErrorStatus } from "../models/errors/helpers";
 import { responseSchema } from "../models/schemas/response";
+import { httpErrorStatus } from "../models/errors/helpers";
 
 function isEnvelope(value: unknown): value is typeof responseSchema.static {
   return (
