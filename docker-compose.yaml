@@ -29,6 +29,8 @@ services:
         condition: service_started
       redis:
         condition: service_healthy
+      llama:
+        condition: service_started
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:${PORT:-3131}/healthz"]
       interval: 600s
@@ -110,9 +112,24 @@ services:
       - app_network
     restart: unless-stopped
 
+  llama:
+    build:
+      context: docker/llama
+    hostname: llama
+    ports:
+      - "${LLAMA_PORT:-11434}:11434"
+    env_file:
+      - docker/llama/.env
+    volumes:
+      - llama_data:/root/.ollama
+    networks:
+      - app_network
+    restart: unless-stopped
+
 networks:
   app_network:
     driver: bridge
 
 volumes:
   postgres_data:
+  llama_data:

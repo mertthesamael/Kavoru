@@ -30,6 +30,9 @@ const envSchema = t.Object({
   RESEND_API_KEY: t.Optional(t.String()),
   RESEND_FROM: t.Optional(t.String()),
   RESEND_ENABLED: t.Optional(t.String()),
+  LLAMA_ENABLED: t.Optional(t.String()),
+  LLAMA_URL: t.Optional(t.String({ format: "uri" })),
+  LLAMA_MODEL: t.String({ default: "llama3.2" }),
 });
 
 const envValidator = getSchemaValidator(envSchema, {
@@ -71,6 +74,22 @@ function resolveRedisEnabled(
 function resolveRedisUrl(raw: string | undefined, nodeEnv: string) {
   if (raw) return raw;
   if (nodeEnv === "development") return "redis://localhost:6379";
+  return undefined;
+}
+
+function resolveLlamaEnabled(
+  raw: string | undefined,
+  nodeEnv: string,
+): boolean {
+  if (nodeEnv === "test") return false;
+  if (raw === "false" || raw === "0" || raw === "") return false;
+  if (raw === "true" || raw === "1") return true;
+  return nodeEnv === "development";
+}
+
+function resolveLlamaUrl(raw: string | undefined, nodeEnv: string) {
+  if (raw) return raw;
+  if (nodeEnv === "development") return "http://localhost:11434";
   return undefined;
 }
 
@@ -192,6 +211,9 @@ export function loadEnv() {
     env.NODE_ENV,
   );
 
+  const llamaEnabled = resolveLlamaEnabled(env.LLAMA_ENABLED, env.NODE_ENV);
+  const llamaUrl = resolveLlamaUrl(env.LLAMA_URL, env.NODE_ENV);
+
   return {
     env: env.NODE_ENV,
     server: {
@@ -225,6 +247,11 @@ export function loadEnv() {
       enabled: resendEnabled,
       apiKey: env.RESEND_API_KEY,
       from: env.RESEND_FROM,
+    },
+    llama: {
+      enabled: llamaEnabled && Boolean(llamaUrl),
+      url: llamaUrl,
+      model: env.LLAMA_MODEL,
     },
   };
 }
