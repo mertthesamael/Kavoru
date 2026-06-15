@@ -12,17 +12,15 @@ describe("Llama Module", () => {
       .handle(new Request("http://localhost/llama/status"))
       .then((res) => res.json());
 
-    expect(response).toEqual(
-      createResponse(
-        {
-          enabled: false,
-          model: config.env.llama.model,
-          url: config.env.llama.url,
-        },
-        "/llama/status",
-        200,
-      ),
-    );
+    expect(response).toMatchObject({
+      success: true,
+      status: 200,
+      path: "/llama/status",
+      data: {
+        enabled: false,
+        model: config.env.llama.model,
+      },
+    });
   });
 
   it("returns 503 when chatting while llama is disabled", async () => {

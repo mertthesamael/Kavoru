@@ -51,40 +51,46 @@ function buildEnvFromSchema(schema: {
   );
 }
 
-function resolveKafkaEnabled(
+function resolveInfraEnabled(
   raw: string | undefined,
   nodeEnv: string,
+  explicitlyConfigured: boolean,
 ): boolean {
   if (nodeEnv === "test") return false;
   if (raw === "false" || raw === "0" || raw === "") return false;
   if (raw === "true" || raw === "1") return true;
+  if (explicitlyConfigured) return true;
   return nodeEnv === "development";
+}
+
+function resolveKafkaEnabled(
+  raw: string | undefined,
+  nodeEnv: string,
+  explicitlyConfigured: boolean,
+): boolean {
+  return resolveInfraEnabled(raw, nodeEnv, explicitlyConfigured);
 }
 
 function resolveRedisEnabled(
   raw: string | undefined,
   nodeEnv: string,
+  explicitlyConfigured: boolean,
 ): boolean {
-  if (nodeEnv === "test") return false;
-  if (raw === "false" || raw === "0" || raw === "") return false;
-  if (raw === "true" || raw === "1") return true;
-  return nodeEnv === "development";
+  return resolveInfraEnabled(raw, nodeEnv, explicitlyConfigured);
+}
+
+function resolveLlamaEnabled(
+  raw: string | undefined,
+  nodeEnv: string,
+  explicitlyConfigured: boolean,
+): boolean {
+  return resolveInfraEnabled(raw, nodeEnv, explicitlyConfigured);
 }
 
 function resolveRedisUrl(raw: string | undefined, nodeEnv: string) {
   if (raw) return raw;
   if (nodeEnv === "development") return "redis://localhost:6379";
   return undefined;
-}
-
-function resolveLlamaEnabled(
-  raw: string | undefined,
-  nodeEnv: string,
-): boolean {
-  if (nodeEnv === "test") return false;
-  if (raw === "false" || raw === "0" || raw === "") return false;
-  if (raw === "true" || raw === "1") return true;
-  return nodeEnv === "development";
 }
 
 function resolveLlamaUrl(raw: string | undefined, nodeEnv: string) {
@@ -200,9 +206,17 @@ export function loadEnv() {
     env.NODE_ENV,
   );
 
-  const kafkaEnabled = resolveKafkaEnabled(env.KAFKA_ENABLED, env.NODE_ENV);
+  const kafkaEnabled = resolveKafkaEnabled(
+    env.KAFKA_ENABLED,
+    env.NODE_ENV,
+    Boolean(env.KAFKA_BROKERS),
+  );
   const kafkaBrokers = parseKafkaBrokers(env.KAFKA_BROKERS, env.NODE_ENV);
-  const redisEnabled = resolveRedisEnabled(env.REDIS_ENABLED, env.NODE_ENV);
+  const redisEnabled = resolveRedisEnabled(
+    env.REDIS_ENABLED,
+    env.NODE_ENV,
+    Boolean(env.REDIS_URL),
+  );
   const redisUrl = resolveRedisUrl(env.REDIS_URL, env.NODE_ENV);
 
   const resendEnabled = resolveResendEnabled(
@@ -211,7 +225,11 @@ export function loadEnv() {
     env.NODE_ENV,
   );
 
-  const llamaEnabled = resolveLlamaEnabled(env.LLAMA_ENABLED, env.NODE_ENV);
+  const llamaEnabled = resolveLlamaEnabled(
+    env.LLAMA_ENABLED,
+    env.NODE_ENV,
+    Boolean(env.LLAMA_URL),
+  );
   const llamaUrl = resolveLlamaUrl(env.LLAMA_URL, env.NODE_ENV);
 
   return {
